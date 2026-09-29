@@ -365,3 +365,50 @@ func TestAdd_TheHintIsStyledAsAPromptAndTypedTextIsNot(t *testing.T) {
 		t.Errorf("typed text is styled, want it plain: %q", line)
 	}
 }
+
+func TestFooter_ShowsTheKeysForTheCurrentMode(t *testing.T) {
+	m := booted(newRig(t).newModel())
+	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 24})
+	wantScreen(t, "list mode", m, "enter start", "x stop", "a add", "j/k move", "q quit")
+
+	m = press(m, keyA)
+	wantScreen(t, "prompt mode", m, "enter add", "esc cancel", "ctrl+c quit")
+	for _, listKey := range []string{"x stop", "j/k move", "q quit", "a add"} {
+		if strings.Contains(screen(m), listKey) {
+			t.Errorf("the prompt footer still advertises the list key %q:\n%s", listKey, screen(m))
+		}
+	}
+
+	m = press(m, keyEsc)
+	wantScreen(t, "back in list mode", m, "enter start", "x stop")
+}
+
+func TestFooter_TruncatesToTheTerminalWidth(t *testing.T) {
+	m := booted(newRig(t).newModel())
+	m = send(m, tea.WindowSizeMsg{Width: 24, Height: 12})
+	for i, line := range strings.Split(m.View().Content, "\n") {
+		if w := ansi.StringWidth(line); w > 24 {
+			t.Errorf("line %d is %d cells wide, want at most 24: %q", i, w, line)
+		}
+	}
+	wantScreen(t, "the first keys survive", m, "enter start")
+}
+
+func TestFooter_NeverCutsAHintInHalf(t *testing.T) {
+	hints := map[string]bool{"enter start": true, "x stop": true, "a add": true, "j/k move": true, "q quit": true}
+	for width := 12; width <= 60; width++ {
+		m := booted(newRig(t).newModel())
+		m = send(m, tea.WindowSizeMsg{Width: width, Height: 12})
+		for _, line := range strings.Split(screen(m), "\n") {
+			if !strings.Contains(line, "enter start") {
+				continue
+			}
+			for _, part := range strings.Split(line, "•") {
+				hint := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(part), "…"))
+				if !hints[hint] {
+					t.Errorf("width %d: footer %q contains a partial hint %q", width, line, hint)
+				}
+			}
+		}
+	}
+}
