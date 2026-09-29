@@ -128,7 +128,7 @@ func (s *Store) migrate(ctx context.Context) error {
 
 func toTime(nanos int64) time.Time { return time.Unix(0, nanos).UTC() }
 
-const sessionColumns = `id, task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns`
+const sessionColumns = `id, task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns, handoff_at`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -140,8 +140,9 @@ func scanSession(r scanner) (core.FocusSession, error) {
 		stopped sql.NullInt64
 		brk     int64
 		skipped int64
+		handoff sql.NullInt64
 	)
-	if err := r.Scan(&sess.ID, &sess.TaskID, &started, &planned, &stopped, &brk, &sess.LongBreak, &skipped); err != nil {
+	if err := r.Scan(&sess.ID, &sess.TaskID, &started, &planned, &stopped, &brk, &sess.LongBreak, &skipped, &handoff); err != nil {
 		return core.FocusSession{}, err
 	}
 	sess.StartedAt = toTime(started)
@@ -151,6 +152,10 @@ func scanSession(r scanner) (core.FocusSession, error) {
 	if stopped.Valid {
 		t := toTime(stopped.Int64)
 		sess.StoppedAt = &t
+	}
+	if handoff.Valid {
+		t := toTime(handoff.Int64)
+		sess.HandoffAt = &t
 	}
 	return sess, nil
 }
@@ -169,6 +174,41 @@ func (s *Store) Sessions(ctx context.Context) ([]core.FocusSession, error) {
 			return nil, err
 		}
 		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
+func scanNote(r scanner) (core.Note, error) {
+	var (
+		n       core.Note
+		task    sql.NullInt64
+		session sql.NullInt64
+		created int64
+	)
+	if err := r.Scan(&n.ID, &task, &session, &n.Text, &created); err != nil {
+		return core.Note{}, err
+	}
+	n.TaskID, n.SessionID = core.TaskID(task.Int64), core.SessionID(session.Int64)
+	n.CreatedAt = toTime(created)
+	return n, nil
+}
+
+const noteColumns = `id, task_id, session_id, text, created_at`
+
+// Notes implements core.Store.
+func (s *Store) Notes(ctx context.Context) ([]core.Note, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+noteColumns+` FROM notes ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []core.Note{}
+	for rows.Next() {
+		n, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
 	}
 	return out, rows.Err()
 }
@@ -351,10 +391,10 @@ func (x *tx) CreateSession(sess core.FocusSession) (core.SessionID, error) {
 		return 0, err
 	}
 	res, err := x.tx.ExecContext(x.ctx,
-		`INSERT INTO sessions (task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		sess.TaskID, sess.StartedAt.UnixNano(), int64(sess.PlannedDuration), stoppedNanos(sess.StoppedAt),
-		int64(sess.BreakDuration), sess.LongBreak, int64(sess.SkippedBreak))
+		`INSERT INTO sessions (task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns, handoff_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.TaskID, sess.StartedAt.UnixNano(), int64(sess.PlannedDuration), optNanos(sess.StoppedAt),
+		int64(sess.BreakDuration), sess.LongBreak, int64(sess.SkippedBreak), optNanos(sess.HandoffAt))
 	if err != nil {
 		return 0, err
 	}
@@ -363,8 +403,8 @@ func (x *tx) CreateSession(sess core.FocusSession) (core.SessionID, error) {
 }
 
 func (x *tx) SaveSession(sess core.FocusSession) error {
-	res, err := x.tx.ExecContext(x.ctx, `UPDATE sessions SET stopped_at = ? WHERE id = ?`,
-		stoppedNanos(sess.StoppedAt), sess.ID)
+	res, err := x.tx.ExecContext(x.ctx, `UPDATE sessions SET stopped_at = ?, handoff_at = ? WHERE id = ?`,
+		optNanos(sess.StoppedAt), optNanos(sess.HandoffAt), sess.ID)
 	if err != nil {
 		return err
 	}
@@ -385,7 +425,7 @@ func (x *tx) LatestSession() (core.FocusSession, error) {
 	return sess, err
 }
 
-func stoppedNanos(t *time.Time) sql.NullInt64 {
+func optNanos(t *time.Time) sql.NullInt64 {
 	if t == nil {
 		return sql.NullInt64{}
 	}
@@ -398,4 +438,66 @@ func (x *tx) CompletedSessionCount(now time.Time) (int, error) {
 		`SELECT COUNT(*) FROM sessions WHERE stopped_at IS NULL AND started_at + planned_ns <= ?`,
 		now.UnixNano()).Scan(&n)
 	return n, err
+}
+
+// nullID stores 0 as NULL, for the optional references on a Note.
+func nullID(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: id != 0} }
+
+func (x *tx) exists(table string, id int64) (bool, error) {
+	var one int
+	err := x.tx.QueryRowContext(x.ctx, `SELECT 1 FROM `+table+` WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (x *tx) CreateNote(n core.Note) (core.NoteID, error) {
+	for table, id := range map[string]int64{"tasks": int64(n.TaskID), "sessions": int64(n.SessionID)} {
+		if id == 0 {
+			continue
+		}
+		ok, err := x.exists(table, id)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			return 0, core.ErrNotFound
+		}
+	}
+	res, err := x.tx.ExecContext(x.ctx,
+		`INSERT INTO notes (task_id, session_id, text, created_at) VALUES (?, ?, ?, ?)`,
+		nullID(int64(n.TaskID)), nullID(int64(n.SessionID)), n.Text, n.CreatedAt.UnixNano())
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	return core.NoteID(id), err
+}
+
+func (x *tx) Note(id core.NoteID) (core.Note, error) {
+	n, err := scanNote(x.tx.QueryRowContext(x.ctx, `SELECT `+noteColumns+` FROM notes WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.Note{}, core.ErrNotFound
+	}
+	return n, err
+}
+
+func (x *tx) SaveNote(n core.Note) error {
+	if ok, err := x.exists("tasks", int64(n.TaskID)); err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return core.ErrNotFound
+	}
+	res, err := x.tx.ExecContext(x.ctx, `UPDATE notes SET task_id = ? WHERE id = ?`, n.TaskID, n.ID)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err != nil {
+		return err
+	} else if rows == 0 {
+		return core.ErrNotFound
+	}
+	return nil
 }

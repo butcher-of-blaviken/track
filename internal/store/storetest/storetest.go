@@ -34,6 +34,10 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"LatestSessionIsTheHighestID", latestSessionIsTheHighestID},
 		{"SessionForUnknownTaskIsNotFound", sessionForUnknownTaskIsNotFound},
 		{"CompletedSessionCountCountsOnlyCompleted", completedSessionCountCountsOnlyCompleted},
+		{"SaveSessionPersistsHandoffAt", saveSessionPersistsHandoffAt},
+		{"NotesRoundTripInIDOrder", notesRoundTripInIDOrder},
+		{"NoteReferencesMustExist", noteReferencesMustExist},
+		{"SaveNoteOnlyFilesOntoATask", saveNoteOnlyFilesOntoATask},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.run(t, newStore(t)) })
@@ -409,5 +413,126 @@ func completedSessionCountCountsOnlyCompleted(t *testing.T, s core.Store) {
 	}
 	if got := count(created.Add(3 * time.Hour)); got != 2 {
 		t.Errorf("count once the third has also completed = %d, want 2", got)
+	}
+}
+
+func saveSessionPersistsHandoffAt(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	id := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: 30 * time.Minute})
+
+	all, _ := s.Sessions(ctx)
+	if all[0].HandoffAt != nil {
+		t.Fatalf("HandoffAt = %v on a new session, want nil", all[0].HandoffAt)
+	}
+	handoff := created.Add(31 * time.Minute)
+	err := s.Update(ctx, func(tx core.Tx) error {
+		return tx.SaveSession(core.FocusSession{ID: id, HandoffAt: &handoff, PlannedDuration: time.Hour})
+	})
+	if err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+	all, _ = s.Sessions(ctx)
+	if got := all[0]; got.HandoffAt == nil || !got.HandoffAt.Equal(handoff) || got.PlannedDuration != 30*time.Minute {
+		t.Errorf("after save: %+v, want HandoffAt %v and the 30m plan unchanged", got, handoff)
+	}
+}
+
+// createNote saves a new note in its own transaction and returns its ID.
+func createNote(t *testing.T, s core.Store, n core.Note) core.NoteID {
+	t.Helper()
+	var id core.NoteID
+	err := s.Update(context.Background(), func(tx core.Tx) error {
+		var err error
+		id, err = tx.CreateNote(n)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	return id
+}
+
+func notesRoundTripInIDOrder(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	sess := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: time.Minute})
+	a := createNote(t, s, core.Note{TaskID: task, SessionID: sess, Text: "left off at the parser", CreatedAt: created.Add(time.Hour)})
+	b := createNote(t, s, core.Note{Text: "check the retry logic", CreatedAt: created})
+	if a == 0 || b == 0 || a == b {
+		t.Fatalf("note IDs must be non-zero and unique, got %d and %d", a, b)
+	}
+
+	got, err := s.Notes(ctx)
+	if err != nil {
+		t.Fatalf("Notes: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != a || got[1].ID != b {
+		t.Fatalf("Notes = %+v, want IDs [%d %d]", got, a, b)
+	}
+	if n := got[0]; n.TaskID != task || n.SessionID != sess || n.Text != "left off at the parser" || !n.CreatedAt.Equal(created.Add(time.Hour)) {
+		t.Errorf("hand-off note mismatch: %+v", n)
+	}
+	if n := got[1]; n.TaskID != 0 || n.SessionID != 0 || n.Text != "check the retry logic" || !n.CreatedAt.Equal(created) {
+		t.Errorf("unfiled note mismatch: %+v", n)
+	}
+
+	err = s.Update(ctx, func(tx core.Tx) error {
+		n, err := tx.Note(a)
+		if err != nil || n.Text != "left off at the parser" {
+			t.Errorf("Tx.Note(%d) = %+v, %v", a, n, err)
+		}
+		if _, err := tx.Note(9999); !errors.Is(err, core.ErrNotFound) {
+			t.Errorf("Tx.Note(missing) error = %v, want ErrNotFound", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func noteReferencesMustExist(t *testing.T, s core.Store) {
+	for name, n := range map[string]core.Note{
+		"unknown task":    {TaskID: 9999, Text: "x", CreatedAt: created},
+		"unknown session": {SessionID: 9999, Text: "x", CreatedAt: created},
+	} {
+		err := s.Update(context.Background(), func(tx core.Tx) error {
+			_, err := tx.CreateNote(n)
+			return err
+		})
+		if !errors.Is(err, core.ErrNotFound) {
+			t.Errorf("%s: CreateNote error = %v, want ErrNotFound", name, err)
+		}
+	}
+	if all, err := s.Notes(context.Background()); err != nil || len(all) != 0 {
+		t.Errorf("Notes = %v, %v; want none", all, err)
+	}
+}
+
+func saveNoteOnlyFilesOntoATask(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	id := createNote(t, s, core.Note{Text: "original", CreatedAt: created})
+
+	err := s.Update(ctx, func(tx core.Tx) error {
+		return tx.SaveNote(core.Note{ID: id, TaskID: task, Text: "changed", CreatedAt: created.Add(time.Hour)})
+	})
+	if err != nil {
+		t.Fatalf("SaveNote: %v", err)
+	}
+	all, _ := s.Notes(ctx)
+	if got := all[0]; got.TaskID != task || got.Text != "original" || !got.CreatedAt.Equal(created) {
+		t.Errorf("after filing: %+v, want TaskID %d with text and time unchanged", got, task)
+	}
+
+	for name, n := range map[string]core.Note{
+		"unknown note": {ID: 9999, TaskID: task},
+		"unknown task": {ID: id, TaskID: 9999},
+	} {
+		err := s.Update(ctx, func(tx core.Tx) error { return tx.SaveNote(n) })
+		if !errors.Is(err, core.ErrNotFound) {
+			t.Errorf("%s: SaveNote error = %v, want ErrNotFound", name, err)
+		}
 	}
 }
