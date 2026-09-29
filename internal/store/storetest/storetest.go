@@ -37,6 +37,7 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"SaveSessionPersistsHandoffAt", saveSessionPersistsHandoffAt},
 		{"NotesRoundTripInIDOrder", notesRoundTripInIDOrder},
 		{"StoreLatestSessionReadsOutsideATransaction", storeLatestSession},
+		{"UnfiledNoteCountCountsNotesWithNoTask", unfiledNoteCount},
 		{"NoteReferencesMustExist", noteReferencesMustExist},
 		{"SaveNoteOnlyFilesOntoATask", saveNoteOnlyFilesOntoATask},
 	}
@@ -554,5 +555,35 @@ func storeLatestSession(t *testing.T, s core.Store) {
 	}
 	if got.ID != last || got.StoppedAt == nil || !got.StoppedAt.Equal(stopped) || got.PlannedDuration != 30*time.Minute {
 		t.Errorf("LatestSession = %+v, want the second session (ID %d) in full", got, last)
+	}
+}
+
+func unfiledNoteCount(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	count := func() int {
+		t.Helper()
+		n, err := s.UnfiledNoteCount(ctx)
+		if err != nil {
+			t.Fatalf("UnfiledNoteCount: %v", err)
+		}
+		return n
+	}
+	if got := count(); got != 0 {
+		t.Fatalf("count on an empty store = %d, want 0", got)
+	}
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	createNote(t, s, core.Note{Text: "unfiled one", CreatedAt: created})
+	toFile := createNote(t, s, core.Note{Text: "unfiled two", CreatedAt: created})
+	createNote(t, s, core.Note{TaskID: task, Text: "already filed", CreatedAt: created})
+	if got := count(); got != 2 {
+		t.Errorf("count = %d, want 2 (the filed note is not counted)", got)
+	}
+
+	err := s.Update(ctx, func(tx core.Tx) error { return tx.SaveNote(core.Note{ID: toFile, TaskID: task}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Errorf("count after filing one = %d, want 1", got)
 	}
 }

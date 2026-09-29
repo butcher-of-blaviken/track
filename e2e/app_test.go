@@ -136,3 +136,58 @@ func TestAddATaskFromTheKeyboardAndItSurvivesARestart(t *testing.T) {
 	again := launch(t, nil, "--data-dir", dir)
 	again.waitFor(`finishing up auth\s+#PROJ-123`, wait)
 }
+
+// addTaskByKeyboard adds a Task through the prompt and waits for it to show up.
+func addTaskByKeyboard(tm *term, text, expect string) {
+	tm.t.Helper()
+	tm.press("a")
+	tm.waitFor(`Add task`, wait)
+	tm.typeText(text)
+	tm.press("Enter")
+	tm.waitFor(expect, wait)
+}
+
+func TestStartAndStopASessionFromTheKeyboard(t *testing.T) {
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "write the PRD", `write the PRD`)
+
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
+
+	tm.press("s") // a second start while one is running is refused, with a notice
+	tm.waitFor(`already running`, wait)
+
+	tm.press("x")
+	stopped := tm.waitFor(`Idle`, wait)
+	if !strings.Contains(stopped, "Hand-off due") {
+		t.Errorf("stopping early should leave the hand-off due:\n%s", stopped)
+	}
+	if strings.Contains(stopped, "Break") {
+		t.Errorf("stopping early should not start a Break:\n%s", stopped)
+	}
+
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestAStartedSessionRunsIntoABreakWithTheHandoffDue(t *testing.T) {
+	dir := t.TempDir()
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir) // 30m passes in ~15s
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "long haul", `long haul`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+long haul`, wait)
+
+	onBreak := tm.waitFor(`Break\s+\d+:\d\d`, 40*time.Second)
+	if !strings.Contains(onBreak, "Hand-off due") {
+		t.Errorf("the Break screen does not show the hand-off due:\n%s", onBreak)
+	}
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

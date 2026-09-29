@@ -76,6 +76,19 @@ func (s *Store) LatestSession(context.Context) (core.FocusSession, error) {
 	return cloneSession(s.st.sessions[len(s.st.sessions)-1]), nil
 }
 
+// UnfiledNoteCount implements core.Store.
+func (s *Store) UnfiledNoteCount(context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, note := range s.st.notes {
+		if note.TaskID == 0 {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // Notes implements core.Store.
 func (s *Store) Notes(context.Context) ([]core.Note, error) {
 	s.mu.Lock()

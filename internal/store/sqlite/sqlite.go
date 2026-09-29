@@ -205,6 +205,13 @@ func (s *Store) LatestSession(ctx context.Context) (core.FocusSession, error) {
 	return sess, err
 }
 
+// UnfiledNoteCount implements core.Store.
+func (s *Store) UnfiledNoteCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notes WHERE task_id IS NULL`).Scan(&n)
+	return n, err
+}
+
 // Notes implements core.Store.
 func (s *Store) Notes(ctx context.Context) ([]core.Note, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+noteColumns+` FROM notes ORDER BY id`)

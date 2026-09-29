@@ -16,7 +16,11 @@ import (
 	"github.com/butcher-of-blaviken/track/internal/core"
 )
 
-const tickEvery = time.Second
+const (
+	tickEvery = time.Second
+	// defaultFocusDuration is used until the config and flags set one.
+	defaultFocusDuration = 30 * time.Minute
+)
 
 // TickMsg asks the model to refresh from the core. The model schedules its own
 // ticks; it is exported so tests can drive time by hand.
@@ -26,8 +30,14 @@ type TickMsg time.Time
 type refreshMsg struct {
 	snap  core.Snapshot
 	tasks []core.Task
-	err   error
+	// sessionTask is the Task being focused on, when a session is running.
+	sessionTask *core.Task
+	unfiled     int
+	err         error
 }
+
+// sessionMsg carries the result of starting or stopping a session.
+type sessionMsg struct{ err error }
 
 // addedMsg carries the result of creating a Task.
 type addedMsg struct {
@@ -44,15 +54,26 @@ func WithTick(tick func() tea.Cmd) Option {
 	return func(m *Model) { m.tick = tick }
 }
 
+// WithFocusDuration sets how long a started Focus session runs.
+func WithFocusDuration(d time.Duration) Option {
+	return func(m *Model) { m.focusDuration = d }
+}
+
 // Model is the Bubble Tea model for the main screen.
 type Model struct {
 	tracker *core.Tracker
 	tick    func() tea.Cmd
 
-	snap   core.Snapshot
-	tasks  []core.Task
-	loaded bool
-	err    error
+	focusDuration time.Duration
+
+	snap        core.Snapshot
+	tasks       []core.Task
+	sessionTask *core.Task
+	unfiled     int
+	loaded      bool
+	err         error
+	// notice is a one-line message about the last action, cleared on the next key.
+	notice string
 
 	width, height int
 
@@ -84,7 +105,7 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.SetStyles(styles)
 	input.SetVirtualCursor(false)
 
-	m := Model{tracker: tracker, tick: defaultTick, input: input}
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration}
 	for _, opt := range opts {
 		opt(&m)
 	}
@@ -116,8 +137,39 @@ func (m Model) fetch() tea.Cmd {
 		if err != nil {
 			return refreshMsg{err: err}
 		}
-		tasks, err := tracker.Tasks(ctx, core.StateActive)
-		return refreshMsg{snap: snap, tasks: tasks, err: err}
+		msg := refreshMsg{snap: snap}
+		if msg.tasks, msg.err = tracker.Tasks(ctx, core.StateActive); msg.err != nil {
+			return msg
+		}
+		if msg.unfiled, msg.err = tracker.UnfiledNoteCount(ctx); msg.err != nil {
+			return msg
+		}
+		if snap.Phase == core.PhaseFocus {
+			task, err := tracker.Task(ctx, snap.Session.TaskID)
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			msg.sessionTask = &task
+		}
+		return msg
+	}
+}
+
+// start starts a session on a Task off the UI goroutine.
+func (m Model) start(id core.TaskID) tea.Cmd {
+	tracker, planned := m.tracker, m.focusDuration
+	return func() tea.Msg {
+		_, err := tracker.StartSession(context.Background(), id, planned, core.StartOptions{})
+		return sessionMsg{err: err}
+	}
+}
+
+// stop ends the running session early off the UI goroutine.
+func (m Model) stop() tea.Cmd {
+	tracker := m.tracker
+	return func() tea.Msg {
+		_, err := tracker.StopSession(context.Background())
+		return sessionMsg{err: err}
 	}
 }
 
@@ -143,10 +195,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// tries again.
 		m.err = msg.err
 		if msg.err == nil {
-			m.snap, m.tasks, m.loaded = msg.snap, msg.tasks, true
+			m.snap, m.tasks, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.tasks, msg.sessionTask, msg.unfiled, true
 			m.reselect()
 		}
 		return m, nil
+	case sessionMsg:
+		if msg.err != nil {
+			m.notice = m.describeSession(msg.err)
+			return m, nil
+		}
+		return m, m.fetch()
 	case addedMsg:
 		if msg.err != nil {
 			m.addErr = describe(msg.err)
@@ -174,9 +232,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateList(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.notice = ""
 	switch key.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "s", "enter":
+		if len(m.tasks) == 0 {
+			return m, nil
+		}
+		return m, m.start(m.tasks[m.cursor].ID)
+	case "x":
+		return m, m.stop()
 	case "j", "down":
 		m.moveCursor(1)
 	case "k", "up":
@@ -261,6 +327,24 @@ func clampTop(top, cursor, rows, n int) int {
 func describe(err error) string {
 	if errors.Is(err, core.ErrEmptyTitle) {
 		return "A task needs a title (tags alone don't count)"
+	}
+	return err.Error()
+}
+
+// describeSession words the reasons a start or stop can be refused.
+func (m Model) describeSession(err error) string {
+	switch {
+	case errors.Is(err, core.ErrSessionRunning):
+		return "A session is already running. Stop it first (x)."
+	case errors.Is(err, core.ErrBreakActive):
+		if m.snap.Phase == core.PhaseBreak {
+			return "A break is in progress (" + clockText(m.snap.Remaining) + " left)."
+		}
+		return "A break is in progress."
+	case errors.Is(err, core.ErrNoSessionRunning):
+		return "Nothing to stop."
+	case errors.Is(err, core.ErrTaskNotActive):
+		return "That task is not active."
 	}
 	return err.Error()
 }
