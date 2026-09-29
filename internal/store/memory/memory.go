@@ -19,10 +19,16 @@ type state struct {
 	nextID core.TaskID
 	// tags maps a lowercased Tag name to its first-use casing.
 	tags map[string]string
+	// sessions are kept in ID order, which is also creation order.
+	sessions      []core.FocusSession
+	nextSessionID core.SessionID
 }
 
 func (st state) clone() state {
-	return state{tasks: maps.Clone(st.tasks), nextID: st.nextID, tags: maps.Clone(st.tags)}
+	return state{
+		tasks: maps.Clone(st.tasks), nextID: st.nextID, tags: maps.Clone(st.tags),
+		sessions: slices.Clone(st.sessions), nextSessionID: st.nextSessionID,
+	}
 }
 
 // Store is an in-memory core.Store.
@@ -35,12 +41,31 @@ var _ core.Store = (*Store)(nil)
 
 // New returns an empty Store.
 func New() *Store {
-	return &Store{st: state{tasks: map[core.TaskID]core.Task{}, nextID: 1, tags: map[string]string{}}}
+	return &Store{st: state{tasks: map[core.TaskID]core.Task{}, nextID: 1, tags: map[string]string{}, nextSessionID: 1}}
 }
 
 func cloneTask(t core.Task) core.Task {
 	t.Tags = slices.Clone(t.Tags)
 	return t
+}
+
+func cloneSession(s core.FocusSession) core.FocusSession {
+	if s.StoppedAt != nil {
+		stopped := *s.StoppedAt
+		s.StoppedAt = &stopped
+	}
+	return s
+}
+
+// Sessions implements core.Store.
+func (s *Store) Sessions(context.Context) ([]core.FocusSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]core.FocusSession, len(s.st.sessions))
+	for i, session := range s.st.sessions {
+		out[i] = cloneSession(session)
+	}
+	return out, nil
 }
 
 // Tasks implements core.Store.
@@ -117,4 +142,32 @@ func (x *tx) SaveTask(t core.Task) error {
 	t.CreatedAt = old.CreatedAt
 	x.st.tasks[t.ID] = x.canonical(t)
 	return nil
+}
+
+func (x *tx) CreateSession(sess core.FocusSession) (core.SessionID, error) {
+	if _, ok := x.st.tasks[sess.TaskID]; !ok {
+		return 0, core.ErrNotFound
+	}
+	sess.ID = x.st.nextSessionID
+	x.st.nextSessionID++
+	x.st.sessions = append(x.st.sessions, cloneSession(sess))
+	return sess.ID, nil
+}
+
+func (x *tx) SaveSession(sess core.FocusSession) error {
+	i := slices.IndexFunc(x.st.sessions, func(c core.FocusSession) bool { return c.ID == sess.ID })
+	if i < 0 {
+		return core.ErrNotFound
+	}
+	updated := x.st.sessions[i] // cloned slice header, so replacing the element is transaction-local
+	updated.StoppedAt = cloneSession(sess).StoppedAt
+	x.st.sessions[i] = updated
+	return nil
+}
+
+func (x *tx) LatestSession() (core.FocusSession, error) {
+	if len(x.st.sessions) == 0 {
+		return core.FocusSession{}, core.ErrNotFound
+	}
+	return cloneSession(x.st.sessions[len(x.st.sessions)-1]), nil
 }

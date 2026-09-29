@@ -29,6 +29,10 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"UpdateIsAtomic", updateIsAtomic},
 		{"TasksListsAllStatesInIDOrder", tasksListsAllStatesInIDOrder},
 		{"TagCasingFoldsUnicode", tagCasingFoldsUnicode},
+		{"SessionsRoundTripInIDOrder", sessionsRoundTripInIDOrder},
+		{"SaveSessionPersistsOnlyStoppedAt", saveSessionPersistsOnlyStoppedAt},
+		{"LatestSessionIsTheHighestID", latestSessionIsTheHighestID},
+		{"SessionForUnknownTaskIsNotFound", sessionForUnknownTaskIsNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.run(t, newStore(t)) })
@@ -239,5 +243,124 @@ func tagCasingFoldsUnicode(t *testing.T, s core.Store) {
 	}
 	if !reflect.DeepEqual(got.Tags, []string{"Ünï"}) {
 		t.Errorf("tags = %v, want [Ünï]", got.Tags)
+	}
+}
+
+// createSession saves a new session in its own transaction and returns its ID.
+func createSession(t *testing.T, s core.Store, session core.FocusSession) core.SessionID {
+	t.Helper()
+	var id core.SessionID
+	err := s.Update(context.Background(), func(tx core.Tx) error {
+		var err error
+		id, err = tx.CreateSession(session)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return id
+}
+
+func sessionsRoundTripInIDOrder(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	stopped := created.Add(12 * time.Minute)
+	a := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: 30 * time.Minute})
+	b := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 25 * time.Minute, StoppedAt: &stopped})
+	if a == 0 || b == 0 || a == b {
+		t.Fatalf("session IDs must be non-zero and unique, got %d and %d", a, b)
+	}
+
+	got, err := s.Sessions(ctx)
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != a || got[1].ID != b {
+		t.Fatalf("Sessions = %+v, want IDs [%d %d]", got, a, b)
+	}
+	first, second := got[0], got[1]
+	if first.TaskID != task || !first.StartedAt.Equal(created) || first.PlannedDuration != 30*time.Minute || first.StoppedAt != nil {
+		t.Errorf("first session mismatch: %+v", first)
+	}
+	if second.PlannedDuration != 25*time.Minute || second.StoppedAt == nil || !second.StoppedAt.Equal(stopped) {
+		t.Errorf("second session mismatch: %+v", second)
+	}
+}
+
+func saveSessionPersistsOnlyStoppedAt(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	id := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: 30 * time.Minute})
+
+	stopped := created.Add(10 * time.Minute)
+	err := s.Update(ctx, func(tx core.Tx) error {
+		return tx.SaveSession(core.FocusSession{
+			ID: id, TaskID: 999, StartedAt: created.Add(time.Hour), PlannedDuration: time.Hour, StoppedAt: &stopped,
+		})
+	})
+	if err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+	all, err := s.Sessions(ctx)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("Sessions = %+v, %v", all, err)
+	}
+	got := all[0]
+	if got.StoppedAt == nil || !got.StoppedAt.Equal(stopped) {
+		t.Errorf("StoppedAt = %v, want %v", got.StoppedAt, stopped)
+	}
+	if got.TaskID != task || !got.StartedAt.Equal(created) || got.PlannedDuration != 30*time.Minute {
+		t.Errorf("immutable fields changed: %+v", got)
+	}
+
+	err = s.Update(ctx, func(tx core.Tx) error { return tx.SaveSession(core.FocusSession{ID: 9999}) })
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("SaveSession on a missing session error = %v, want ErrNotFound", err)
+	}
+}
+
+func latestSessionIsTheHighestID(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	err := s.Update(ctx, func(tx core.Tx) error {
+		if _, err := tx.LatestSession(); !errors.Is(err, core.ErrNotFound) {
+			t.Errorf("LatestSession with none = %v, want ErrNotFound", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: time.Minute})
+	err = s.Update(ctx, func(tx core.Tx) error {
+		id, err := tx.CreateSession(core.FocusSession{TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 2 * time.Minute})
+		if err != nil {
+			return err
+		}
+		got, err := tx.LatestSession() // sees this transaction's own write
+		if err != nil {
+			return err
+		}
+		if got.ID != id || got.PlannedDuration != 2*time.Minute {
+			t.Errorf("LatestSession = %+v, want the session just created (ID %d)", got, id)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sessionForUnknownTaskIsNotFound(t *testing.T, s core.Store) {
+	err := s.Update(context.Background(), func(tx core.Tx) error {
+		_, err := tx.CreateSession(core.FocusSession{TaskID: 9999, StartedAt: created, PlannedDuration: time.Minute})
+		return err
+	})
+	if !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("CreateSession for a missing Task error = %v, want ErrNotFound", err)
+	}
+	if all, err := s.Sessions(context.Background()); err != nil || len(all) != 0 {
+		t.Errorf("Sessions = %v, %v; want none", all, err)
 	}
 }
