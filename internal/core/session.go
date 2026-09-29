@@ -45,6 +45,14 @@ type FocusSession struct {
 	PlannedDuration time.Duration
 	// StoppedAt is set only when the user ended the session early.
 	StoppedAt *time.Time
+	// BreakDuration is the Break this session earns if it completes, planned
+	// at start like PlannedDuration so later config changes do not alter it.
+	BreakDuration time.Duration
+	// LongBreak reports whether BreakDuration is a long Break.
+	LongBreak bool
+	// SkippedBreak is the Break time that was left when this session was
+	// started during a Break with the user's confirmation; zero otherwise.
+	SkippedBreak time.Duration
 }
 
 // PlannedEnd is when the session completes if it is not stopped.
@@ -68,4 +76,14 @@ func (s FocusSession) Elapsed(now time.Time) time.Duration {
 		end = *s.StoppedAt
 	}
 	return min(max(end.Sub(s.StartedAt), 0), s.PlannedDuration)
+}
+
+// BreakRemaining is how much of the Break earned by this session is left at
+// now. It is zero while the session runs, after an early stop (no Break
+// follows), and once the Break has ended.
+func (s FocusSession) BreakRemaining(now time.Time) time.Duration {
+	if s.Outcome(now) != OutcomeCompleted {
+		return 0
+	}
+	return max(s.PlannedEnd().Add(s.BreakDuration).Sub(now), 0)
 }

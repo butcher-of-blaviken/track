@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrNotFound is returned when an entity does not exist in the store.
@@ -39,11 +40,15 @@ type Tx interface {
 	// its ID. It returns ErrNotFound if s.TaskID is not an existing Task.
 	CreateSession(s FocusSession) (SessionID, error)
 	// SaveSession records that a session was stopped: it persists StoppedAt
-	// only. The other fields are immutable, so changes to them are ignored.
+	// only. The other fields, including the Break plan, are immutable, so
+	// changes to them are ignored.
 	// It returns ErrNotFound if the session does not exist.
 	SaveSession(s FocusSession) error
 	// LatestSession returns the session with the highest ID, or ErrNotFound if
 	// there are none. Only one session runs at a time, so the latest is the
 	// only one that can be running.
 	LatestSession() (FocusSession, error)
+	// CompletedSessionCount counts the sessions that ran their full planned
+	// length by now: not stopped early, and past their planned end.
+	CompletedSessionCount(now time.Time) (int, error)
 }

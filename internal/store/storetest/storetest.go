@@ -33,6 +33,7 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"SaveSessionPersistsOnlyStoppedAt", saveSessionPersistsOnlyStoppedAt},
 		{"LatestSessionIsTheHighestID", latestSessionIsTheHighestID},
 		{"SessionForUnknownTaskIsNotFound", sessionForUnknownTaskIsNotFound},
+		{"CompletedSessionCountCountsOnlyCompleted", completedSessionCountCountsOnlyCompleted},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.run(t, newStore(t)) })
@@ -266,7 +267,10 @@ func sessionsRoundTripInIDOrder(t *testing.T, s core.Store) {
 	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
 	stopped := created.Add(12 * time.Minute)
 	a := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: 30 * time.Minute})
-	b := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 25 * time.Minute, StoppedAt: &stopped})
+	b := createSession(t, s, core.FocusSession{
+		TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 25 * time.Minute, StoppedAt: &stopped,
+		BreakDuration: 20 * time.Minute, LongBreak: true, SkippedBreak: 7 * time.Minute,
+	})
 	if a == 0 || b == 0 || a == b {
 		t.Fatalf("session IDs must be non-zero and unique, got %d and %d", a, b)
 	}
@@ -284,6 +288,12 @@ func sessionsRoundTripInIDOrder(t *testing.T, s core.Store) {
 	}
 	if second.PlannedDuration != 25*time.Minute || second.StoppedAt == nil || !second.StoppedAt.Equal(stopped) {
 		t.Errorf("second session mismatch: %+v", second)
+	}
+	if first.BreakDuration != 0 || first.LongBreak || first.SkippedBreak != 0 {
+		t.Errorf("first session Break fields = %v/%v/%v, want zero values", first.BreakDuration, first.LongBreak, first.SkippedBreak)
+	}
+	if second.BreakDuration != 20*time.Minute || !second.LongBreak || second.SkippedBreak != 7*time.Minute {
+		t.Errorf("second session Break fields = %v/%v/%v, want 20m/true/7m", second.BreakDuration, second.LongBreak, second.SkippedBreak)
 	}
 }
 
@@ -362,5 +372,42 @@ func sessionForUnknownTaskIsNotFound(t *testing.T, s core.Store) {
 	}
 	if all, err := s.Sessions(context.Background()); err != nil || len(all) != 0 {
 		t.Errorf("Sessions = %v, %v; want none", all, err)
+	}
+}
+
+func completedSessionCountCountsOnlyCompleted(t *testing.T, s core.Store) {
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	stopped := created.Add(time.Minute)
+	// Completed by created+2h: started 09:00 for 30m.
+	createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: 30 * time.Minute})
+	// Stopped early.
+	createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 30 * time.Minute, StoppedAt: &stopped})
+	// Still running at created+2h: started 09:00+1h50m for 30m.
+	createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created.Add(110 * time.Minute), PlannedDuration: 30 * time.Minute})
+
+	count := func(now time.Time) int {
+		t.Helper()
+		var n int
+		err := s.Update(context.Background(), func(tx core.Tx) error {
+			var err error
+			n, err = tx.CompletedSessionCount(now)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("CompletedSessionCount: %v", err)
+		}
+		return n
+	}
+	if got := count(created.Add(29 * time.Minute)); got != 0 {
+		t.Errorf("count before the first session ends = %d, want 0", got)
+	}
+	if got := count(created.Add(30 * time.Minute)); got != 1 {
+		t.Errorf("count exactly at the first planned end = %d, want 1", got)
+	}
+	if got := count(created.Add(2 * time.Hour)); got != 1 {
+		t.Errorf("count with one stopped early and one running = %d, want 1", got)
+	}
+	if got := count(created.Add(3 * time.Hour)); got != 2 {
+		t.Errorf("count once the third has also completed = %d, want 2", got)
 	}
 }

@@ -200,7 +200,15 @@ func TestStartSession_ConcurrentStartsFromTwoHandlesAllowExactlyOne(t *testing.T
 	}
 
 	fake := clock.NewFake(time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC))
-	trackers := []*core.Tracker{core.NewTracker(a, fake), core.NewTracker(b, fake)}
+	policy := core.BreakPolicy{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 4}
+	var trackers []*core.Tracker
+	for _, s := range []*sqlite.Store{a, b} {
+		tr, err := core.NewTracker(s, fake, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		trackers = append(trackers, tr)
+	}
 
 	const perHandle = 5
 	results := make(chan error, len(trackers)*perHandle)
@@ -210,7 +218,7 @@ func TestStartSession_ConcurrentStartsFromTwoHandlesAllowExactlyOne(t *testing.T
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := tr.StartSession(ctx, task, 30*time.Minute)
+				_, err := tr.StartSession(ctx, task, 30*time.Minute, core.StartOptions{})
 				results <- err
 			}()
 		}
