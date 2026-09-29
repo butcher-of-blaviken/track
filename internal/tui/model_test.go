@@ -99,7 +99,9 @@ func booted(m tea.Model) tea.Model {
 	return m
 }
 
-func screen(m tea.Model) string { return m.View().Content }
+// screen is what the user reads: the view with styling removed, so tests match
+// on words and not on colours.
+func screen(m tea.Model) string { return ansi.Strip(m.View().Content) }
 
 func wantScreen(t *testing.T, what string, m tea.Model, parts ...string) {
 	t.Helper()

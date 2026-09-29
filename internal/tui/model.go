@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -87,6 +89,9 @@ type Model struct {
 	adding bool
 	input  textinput.Model
 	addErr string
+
+	keys keyMap
+	help help.Model
 }
 
 // New returns a Model that reads its state from tracker.
@@ -105,7 +110,12 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.SetStyles(styles)
 	input.SetVirtualCursor(false)
 
-	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration}
+	// The footer is the same unobtrusive grey as the prompt's hint.
+	footer := help.New()
+	footer.Styles.ShortKey, footer.Styles.ShortDesc = grey, grey
+	footer.Styles.ShortSeparator, footer.Styles.Ellipsis = grey, grey
+
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: footer}
 	for _, opt := range opts {
 		opt(&m)
 	}
@@ -231,23 +241,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateList(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.notice = ""
-	switch key.String() {
-	case "q", "ctrl+c":
+	switch {
+	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
-	case "s", "enter":
+	case key.Matches(press, m.keys.Start):
 		if len(m.tasks) == 0 {
 			return m, nil
 		}
 		return m, m.start(m.tasks[m.cursor].ID)
-	case "x":
+	case key.Matches(press, m.keys.Stop):
 		return m, m.stop()
-	case "j", "down":
+	case key.Matches(press, m.keys.Down):
 		m.moveCursor(1)
-	case "k", "up":
+	case key.Matches(press, m.keys.Up):
 		m.moveCursor(-1)
-	case "a":
+	case key.Matches(press, m.keys.Add):
 		m.adding, m.addErr = true, ""
 		m.input.Reset()
 		return m, m.input.Focus()
@@ -255,18 +265,18 @@ func (m Model) updateList(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updatePrompt(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch key.String() {
-	case "ctrl+c":
+func (m Model) updatePrompt(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
 		return m, tea.Quit
-	case "esc":
+	case key.Matches(press, m.keys.Cancel):
 		m.closePrompt()
 		return m, nil
-	case "enter":
+	case key.Matches(press, m.keys.Submit):
 		return m, m.add(m.input.Value())
 	}
 	m.addErr = ""
-	return m.forwardToPrompt(key)
+	return m.forwardToPrompt(press)
 }
 
 func (m Model) forwardToPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {

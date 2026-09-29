@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -61,13 +62,33 @@ func (m Model) footer() []string {
 		if m.addErr != "" {
 			lines = append(lines, "  "+m.addErr)
 		}
-		return lines
+		return append(lines, "  "+m.helpLine(m.keys.promptHelp()))
 	}
 	lines := []string{""}
 	if m.notice != "" {
 		lines = append(lines, "  "+m.notice)
 	}
-	return append(lines, "  enter start   x stop   a add   j/k move   q quit")
+	return append(lines, "  "+m.helpLine(m.keys.listHelp()))
+}
+
+// helpLine renders key hints with the Bubbles help styling, dropping whole
+// hints from the end, and marking that with an ellipsis, when they do not fit
+// the terminal. help's own width handling is not used: when the ellipsis has no
+// room it adds the overflowing hint anyway, which the line cut would then split.
+func (m Model) helpLine(bindings []key.Binding) string {
+	avail := m.width - 2 // the footer is indented two columns
+	for n := len(bindings); n > 0; n-- {
+		line := m.help.ShortHelpView(bindings[:n])
+		if m.width <= 0 || ansi.StringWidth(line) <= avail {
+			if n < len(bindings) {
+				if tail := " " + m.help.Styles.Ellipsis.Inline(true).Render(m.help.Ellipsis); m.width <= 0 || ansi.StringWidth(line+tail) <= avail {
+					line += tail
+				}
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 // listRows is how many Task rows fit between the header and footer.
