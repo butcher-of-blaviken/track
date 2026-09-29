@@ -338,3 +338,30 @@ func TestAdd_LongInputScrollsAndTheCursorStaysOnScreen(t *testing.T) {
 		}
 	}
 }
+
+// promptLine returns the raw (still styled) line holding the add prompt.
+func promptLine(t *testing.T, m tea.Model) string {
+	t.Helper()
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if strings.Contains(ansi.Strip(line), "Add task:") {
+			return line
+		}
+	}
+	t.Fatalf("no prompt line on screen:\n%s", screen(m))
+	return ""
+}
+
+func TestAdd_TheHintIsStyledAsAPromptAndTypedTextIsNot(t *testing.T) {
+	m := booted(newRig(t).newModel())
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = press(m, keyA)
+
+	if line := promptLine(t, m); ansi.Strip(line) == line {
+		t.Errorf("the hint carries no styling, want it greyed out: %q", line)
+	}
+
+	m = typeText(m, "real text")
+	if line := promptLine(t, m); ansi.Strip(line) != line {
+		t.Errorf("typed text is styled, want it plain: %q", line)
+	}
+}

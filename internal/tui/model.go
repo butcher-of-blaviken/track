@@ -10,6 +10,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -73,8 +74,12 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.Prompt = ""
 	// The leading space is under the terminal's cursor, so no hint text is hidden.
 	input.Placeholder = " what are you working on? add ##tag to label it"
-	// Plain and steady: draw no styles, and let the terminal show the cursor.
+	// Typed text is plain, the hint is greyed out like a prompt (the same mid
+	// grey Bubbles uses, readable on light and dark terminals), and the
+	// terminal draws a steady cursor.
+	grey := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	styles := textinput.Styles{}
+	styles.Focused.Placeholder, styles.Blurred.Placeholder = grey, grey
 	styles.Cursor.Blink = false
 	input.SetStyles(styles)
 	input.SetVirtualCursor(false)
