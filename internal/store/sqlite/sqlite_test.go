@@ -244,3 +244,43 @@ func TestStartSession_ConcurrentStartsFromTwoHandlesAllowExactlyOne(t *testing.T
 		t.Errorf("Sessions = %v, %v; want exactly one", all, err)
 	}
 }
+
+func TestSnapshot_SeesASessionStartedThroughAnotherHandle(t *testing.T) {
+	path := dbPath(t)
+	ctx := context.Background()
+	a, b := mustOpen(t, path), mustOpen(t, path)
+	policy := core.BreakPolicy{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 4}
+	fake := clock.NewFake(time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC))
+	starter, err := core.NewTracker(a, fake, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher, err := core.NewTracker(b, fake, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var task core.TaskID
+	if err := a.Update(ctx, func(tx core.Tx) error {
+		var err error
+		task, err = tx.CreateTask(newTask("shared"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if snap, err := watcher.Snapshot(ctx); err != nil || snap.Phase != core.PhaseIdle {
+		t.Fatalf("before the start: %+v, %v; want Idle", snap, err)
+	}
+	if _, err := starter.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	fake.Advance(10 * time.Minute)
+	snap, err := watcher.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Phase != core.PhaseFocus || snap.Remaining != 20*time.Minute {
+		t.Errorf("snapshot through the other handle = %+v, want Focus with 20m remaining", snap)
+	}
+}

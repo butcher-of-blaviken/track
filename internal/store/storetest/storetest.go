@@ -36,6 +36,7 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"CompletedSessionCountCountsOnlyCompleted", completedSessionCountCountsOnlyCompleted},
 		{"SaveSessionPersistsHandoffAt", saveSessionPersistsHandoffAt},
 		{"NotesRoundTripInIDOrder", notesRoundTripInIDOrder},
+		{"StoreLatestSessionReadsOutsideATransaction", storeLatestSession},
 		{"NoteReferencesMustExist", noteReferencesMustExist},
 		{"SaveNoteOnlyFilesOntoATask", saveNoteOnlyFilesOntoATask},
 	}
@@ -534,5 +535,24 @@ func saveNoteOnlyFilesOntoATask(t *testing.T, s core.Store) {
 		if !errors.Is(err, core.ErrNotFound) {
 			t.Errorf("%s: SaveNote error = %v, want ErrNotFound", name, err)
 		}
+	}
+}
+
+func storeLatestSession(t *testing.T, s core.Store) {
+	ctx := context.Background()
+	if _, err := s.LatestSession(ctx); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("LatestSession on an empty store error = %v, want ErrNotFound", err)
+	}
+	task := createTask(t, s, core.Task{Title: "t", CreatedAt: created})
+	stopped := created.Add(time.Minute)
+	createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created, PlannedDuration: time.Hour})
+	last := createSession(t, s, core.FocusSession{TaskID: task, StartedAt: created.Add(time.Hour), PlannedDuration: 30 * time.Minute, StoppedAt: &stopped})
+
+	got, err := s.LatestSession(ctx)
+	if err != nil {
+		t.Fatalf("LatestSession: %v", err)
+	}
+	if got.ID != last || got.StoppedAt == nil || !got.StoppedAt.Equal(stopped) || got.PlannedDuration != 30*time.Minute {
+		t.Errorf("LatestSession = %+v, want the second session (ID %d) in full", got, last)
 	}
 }

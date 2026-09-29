@@ -90,3 +90,15 @@ func (s FocusSession) BreakRemaining(now time.Time) time.Duration {
 	}
 	return max(s.PlannedEnd().Add(s.BreakDuration).Sub(now), 0)
 }
+
+// EndedAt reports when the session ended, as seen at now: its planned end if it
+// completed, or the moment it was stopped. It is false while the session runs.
+func (s FocusSession) EndedAt(now time.Time) (time.Time, bool) {
+	switch s.Outcome(now) {
+	case OutcomeStoppedEarly:
+		return *s.StoppedAt, true
+	case OutcomeCompleted:
+		return s.PlannedEnd(), true
+	}
+	return time.Time{}, false
+}

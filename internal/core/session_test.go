@@ -70,3 +70,31 @@ func TestFocusSession_BreakRemaining(t *testing.T) {
 		})
 	}
 }
+
+func TestFocusSession_EndedAt(t *testing.T) {
+	stoppedAt := sessionStart.Add(12 * time.Minute)
+	planned := core.FocusSession{StartedAt: sessionStart, PlannedDuration: 30 * time.Minute}
+	stopped := planned
+	stopped.StoppedAt = &stoppedAt
+
+	tests := []struct {
+		name    string
+		session core.FocusSession
+		now     time.Time
+		want    time.Time
+		wantOK  bool
+	}{
+		{"not ended while running", planned, sessionStart.Add(10 * time.Minute), time.Time{}, false},
+		{"a completed session ended at its planned end", planned, sessionStart.Add(5 * time.Hour), sessionStart.Add(30 * time.Minute), true},
+		{"exactly at the planned end", planned, sessionStart.Add(30 * time.Minute), sessionStart.Add(30 * time.Minute), true},
+		{"a stopped session ended when it was stopped", stopped, sessionStart.Add(5 * time.Hour), stoppedAt, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := tt.session.EndedAt(tt.now)
+			if ok != tt.wantOK || !got.Equal(tt.want) {
+				t.Errorf("EndedAt = %v, %v; want %v, %v", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
