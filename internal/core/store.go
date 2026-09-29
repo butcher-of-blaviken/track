@@ -19,6 +19,8 @@ type Store interface {
 	Tasks(ctx context.Context) ([]Task, error)
 	// Task returns the Task with the given ID, or ErrNotFound.
 	Task(ctx context.Context, id TaskID) (Task, error)
+	// Sessions returns all Focus sessions, ordered by ID ascending.
+	Sessions(ctx context.Context) ([]FocusSession, error)
 	// Update runs fn in a transaction. If fn returns an error, none of its
 	// writes are applied and that error is returned.
 	Update(ctx context.Context, fn func(Tx) error) error
@@ -33,4 +35,15 @@ type Tx interface {
 	// SaveTask updates the title, state and Tags of an existing Task, or
 	// returns ErrNotFound.
 	SaveTask(t Task) error
+	// CreateSession saves s as a new Focus session, ignoring s.ID, and returns
+	// its ID. It returns ErrNotFound if s.TaskID is not an existing Task.
+	CreateSession(s FocusSession) (SessionID, error)
+	// SaveSession records that a session was stopped: it persists StoppedAt
+	// only. The other fields are immutable, so changes to them are ignored.
+	// It returns ErrNotFound if the session does not exist.
+	SaveSession(s FocusSession) error
+	// LatestSession returns the session with the highest ID, or ErrNotFound if
+	// there are none. Only one session runs at a time, so the latest is the
+	// only one that can be running.
+	LatestSession() (FocusSession, error)
 }

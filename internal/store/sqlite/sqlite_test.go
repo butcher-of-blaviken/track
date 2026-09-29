@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/butcher-of-blaviken/track/internal/clock"
 	"github.com/butcher-of-blaviken/track/internal/core"
 	"github.com/butcher-of-blaviken/track/internal/store/sqlite"
 	"github.com/butcher-of-blaviken/track/internal/store/storetest"
@@ -181,5 +182,57 @@ func TestOpen_RefusesDatabaseFromNewerVersion(t *testing.T) {
 
 	if _, err := sqlite.Open(path); !errors.Is(err, sqlite.ErrSchemaTooNew) {
 		t.Errorf("Open error = %v, want ErrSchemaTooNew", err)
+	}
+}
+
+func TestStartSession_ConcurrentStartsFromTwoHandlesAllowExactlyOne(t *testing.T) {
+	path := dbPath(t)
+	ctx := context.Background()
+	a, b := mustOpen(t, path), mustOpen(t, path)
+
+	var task core.TaskID
+	if err := a.Update(ctx, func(tx core.Tx) error {
+		var err error
+		task, err = tx.CreateTask(newTask("contended"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := clock.NewFake(time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC))
+	trackers := []*core.Tracker{core.NewTracker(a, fake), core.NewTracker(b, fake)}
+
+	const perHandle = 5
+	results := make(chan error, len(trackers)*perHandle)
+	var wg sync.WaitGroup
+	for _, tr := range trackers {
+		for range perHandle {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := tr.StartSession(ctx, task, 30*time.Minute)
+				results <- err
+			}()
+		}
+	}
+	wg.Wait()
+	close(results)
+
+	var started, rejected int
+	for err := range results {
+		switch {
+		case err == nil:
+			started++
+		case errors.Is(err, core.ErrSessionRunning):
+			rejected++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if started != 1 || rejected != len(trackers)*perHandle-1 {
+		t.Errorf("started %d, rejected %d; want exactly 1 started", started, rejected)
+	}
+	if all, err := a.Sessions(ctx); err != nil || len(all) != 1 {
+		t.Errorf("Sessions = %v, %v; want exactly one", all, err)
 	}
 }

@@ -122,6 +122,47 @@ func (s *Store) migrate(ctx context.Context) error {
 
 func toTime(nanos int64) time.Time { return time.Unix(0, nanos).UTC() }
 
+const sessionColumns = `id, task_id, started_at, planned_ns, stopped_at`
+
+type scanner interface{ Scan(dest ...any) error }
+
+func scanSession(r scanner) (core.FocusSession, error) {
+	var (
+		sess    core.FocusSession
+		started int64
+		planned int64
+		stopped sql.NullInt64
+	)
+	if err := r.Scan(&sess.ID, &sess.TaskID, &started, &planned, &stopped); err != nil {
+		return core.FocusSession{}, err
+	}
+	sess.StartedAt = toTime(started)
+	sess.PlannedDuration = time.Duration(planned)
+	if stopped.Valid {
+		t := toTime(stopped.Int64)
+		sess.StoppedAt = &t
+	}
+	return sess, nil
+}
+
+// Sessions implements core.Store.
+func (s *Store) Sessions(ctx context.Context) ([]core.FocusSession, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []core.FocusSession{}
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
 // Tasks implements core.Store.
 func (s *Store) Tasks(ctx context.Context) ([]core.Task, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, title, state, created_at FROM tasks ORDER BY id`)
@@ -288,4 +329,53 @@ func (x *tx) setTags(id core.TaskID, names []string) error {
 		}
 	}
 	return nil
+}
+
+func (x *tx) CreateSession(sess core.FocusSession) (core.SessionID, error) {
+	var exists int
+	err := x.tx.QueryRowContext(x.ctx, `SELECT 1 FROM tasks WHERE id = ?`, sess.TaskID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, core.ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	res, err := x.tx.ExecContext(x.ctx,
+		`INSERT INTO sessions (task_id, started_at, planned_ns, stopped_at) VALUES (?, ?, ?, ?)`,
+		sess.TaskID, sess.StartedAt.UnixNano(), int64(sess.PlannedDuration), stoppedNanos(sess.StoppedAt))
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.LastInsertId()
+	return core.SessionID(n), err
+}
+
+func (x *tx) SaveSession(sess core.FocusSession) error {
+	res, err := x.tx.ExecContext(x.ctx, `UPDATE sessions SET stopped_at = ? WHERE id = ?`,
+		stoppedNanos(sess.StoppedAt), sess.ID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (x *tx) LatestSession() (core.FocusSession, error) {
+	sess, err := scanSession(x.tx.QueryRowContext(x.ctx,
+		`SELECT `+sessionColumns+` FROM sessions ORDER BY id DESC LIMIT 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.FocusSession{}, core.ErrNotFound
+	}
+	return sess, err
+}
+
+func stoppedNanos(t *time.Time) sql.NullInt64 {
+	if t == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: t.UnixNano(), Valid: true}
 }
