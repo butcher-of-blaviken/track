@@ -10,6 +10,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
 )
@@ -70,7 +71,8 @@ type Model struct {
 func New(tracker *core.Tracker, opts ...Option) Model {
 	input := textinput.New()
 	input.Prompt = ""
-	input.Placeholder = "what are you working on? add ##tag to label it"
+	// The leading space is under the terminal's cursor, so no hint text is hidden.
+	input.Placeholder = " what are you working on? add ##tag to label it"
 	// Plain and steady: draw no styles, and let the terminal show the cursor.
 	styles := textinput.Styles{}
 	styles.Cursor.Blink = false
@@ -81,7 +83,19 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&m)
 	}
+	m.sizeInput()
 	return m
+}
+
+// sizeInput gives the prompt the width left after its label. Without a width
+// the input draws only the first character of its placeholder and does not
+// scroll long text. One column is kept free for the cursor at the end of the text.
+func (m *Model) sizeInput() {
+	width := len([]rune(m.input.Placeholder)) + 1 // terminal size not known yet
+	if m.width > 0 {
+		width = m.width - ansi.StringWidth(promptLabel) - 1
+	}
+	m.input.SetWidth(max(width, 1))
 }
 
 func defaultTick() tea.Cmd {
@@ -138,6 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.fetch()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.sizeInput()
 		m.scrollToCursor()
 		return m, nil
 	case tea.KeyPressMsg:

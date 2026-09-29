@@ -291,3 +291,50 @@ func TestList_ScrollsToKeepTheCursorVisibleOnAShortTerminal(t *testing.T) {
 	}
 	wantSelected(t, "back at the top", m, "task number 30")
 }
+
+// cellUnderCursor returns the character the terminal cursor is drawn over.
+func cellUnderCursor(t *testing.T, m tea.Model) string {
+	t.Helper()
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatalf("no cursor on screen:\n%s", v.Content)
+	}
+	lines := strings.Split(ansi.Strip(v.Content), "\n")
+	if v.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor row %d is off the %d-line screen:\n%s", v.Cursor.Y, len(lines), v.Content)
+	}
+	cells := []rune(lines[v.Cursor.Y])
+	if v.Cursor.X >= len(cells) {
+		return " " // past the end of the line: nothing is covered
+	}
+	return string(cells[v.Cursor.X])
+}
+
+func TestAdd_TheEmptyPromptShowsItsWholeHintAndTheCursorCoversNoText(t *testing.T) {
+	m := booted(newRig(t).newModel())
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = press(m, keyA)
+
+	wantScreen(t, "empty prompt", m, "Add task:", "what are you working on?", "##tag")
+	if got := cellUnderCursor(t, m); got != " " {
+		t.Errorf("the cursor covers %q, want a blank cell so no hint text is hidden", got)
+	}
+}
+
+func TestAdd_LongInputScrollsAndTheCursorStaysOnScreen(t *testing.T) {
+	m := booted(newRig(t).newModel())
+	m = send(m, tea.WindowSizeMsg{Width: 30, Height: 10})
+	m = press(m, keyA)
+	m = typeText(m, "a task title that is much longer than the terminal is wide")
+
+	v := m.View()
+	if v.Cursor == nil || v.Cursor.X >= 30 {
+		t.Fatalf("cursor = %+v, want it inside the 30-column terminal", v.Cursor)
+	}
+	wantScreen(t, "the end of the text stays visible", m, "terminal is wide")
+	for i, line := range strings.Split(v.Content, "\n") {
+		if w := ansi.StringWidth(line); w > 30 {
+			t.Errorf("line %d is %d cells wide, want at most 30: %q", i, w, line)
+		}
+	}
+}
