@@ -53,7 +53,7 @@ func run(args []string, getenv func(string) string) error {
 		return err
 	}
 
-	_, err = tea.NewProgram(tui.New(tracker)).Run()
+	_, err = tea.NewProgram(tui.New(tracker, tui.WithFocusDuration(30*time.Minute))).Run()
 	return err
 }
 

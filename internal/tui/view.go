@@ -44,9 +44,12 @@ func (m Model) header() []string {
 	case !m.loaded:
 		lines = append(lines, "  Loading…")
 	default:
-		lines = append(lines, "  "+phaseLine(m.snap))
+		lines = append(lines, "  "+m.phaseLine())
 		if m.snap.HandoffPending {
 			lines = append(lines, "  Hand-off due")
+		}
+		if m.unfiled > 0 {
+			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d", m.unfiled))
 		}
 	}
 	return append(lines, "")
@@ -60,7 +63,11 @@ func (m Model) footer() []string {
 		}
 		return lines
 	}
-	return []string{"", "  a add   j/k move   q quit"}
+	lines := []string{""}
+	if m.notice != "" {
+		lines = append(lines, "  "+m.notice)
+	}
+	return append(lines, "  enter start   x stop   a add   j/k move   q quit")
 }
 
 // listRows is how many Task rows fit between the header and footer.
@@ -103,12 +110,18 @@ func taskText(t core.Task) string {
 	return t.Title + "  " + strings.Join(chips, " ")
 }
 
-func phaseLine(s core.Snapshot) string {
-	switch s.Phase {
+// phaseLine is the panel's state line: the phase, its countdown, and for Focus
+// the Task being worked on.
+func (m Model) phaseLine() string {
+	switch m.snap.Phase {
 	case core.PhaseFocus:
-		return "Focus   " + clockText(s.Remaining)
+		line := "Focus   " + clockText(m.snap.Remaining)
+		if m.sessionTask != nil {
+			line += "   " + m.sessionTask.Title
+		}
+		return line
 	case core.PhaseBreak:
-		return "Break   " + clockText(s.Remaining)
+		return "Break   " + clockText(m.snap.Remaining)
 	}
 	return "Idle"
 }

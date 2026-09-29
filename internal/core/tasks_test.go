@@ -114,3 +114,42 @@ func TestTasks_FiltersByStateAndListsNewestFirst(t *testing.T) {
 		t.Errorf("no states (all) = %v, want %v", got, want)
 	}
 }
+
+func TestTask_ReturnsATaskByIDOrNotFound(t *testing.T) {
+	r := newRig(t)
+	added, err := r.tracker.AddTask(ctx, "find me ##tag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.tracker.Task(ctx, added.ID)
+	if err != nil || got.Title != "find me" || !slices.Equal(got.Tags, []string{"tag"}) {
+		t.Errorf("Task = %+v, %v; want the added task", got, err)
+	}
+	if _, err := r.tracker.Task(ctx, 9999); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("Task(missing) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUnfiledNoteCount_CountsOnlyNotesWithNoTask(t *testing.T) {
+	r := newRig(t)
+	task, err := r.tracker.AddTask(ctx, "a task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := r.tracker.AddUnfiledNote(ctx, "one")
+	if _, err := r.tracker.AddUnfiledNote(ctx, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.tracker.AddNote(ctx, task.ID, "already filed"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.tracker.UnfiledNoteCount(ctx); err != nil || got != 2 {
+		t.Errorf("count = %d, %v; want 2", got, err)
+	}
+	if _, err := r.tracker.FileNote(ctx, first.ID, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.tracker.UnfiledNoteCount(ctx); got != 1 {
+		t.Errorf("count after filing = %d, want 1", got)
+	}
+}

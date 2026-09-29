@@ -178,3 +178,13 @@ func (t *Tracker) Tasks(ctx context.Context, states ...State) ([]Task, error) {
 	})
 	return out, nil
 }
+
+// Task returns the Task with the given ID, or ErrNotFound.
+func (t *Tracker) Task(ctx context.Context, id TaskID) (Task, error) {
+	return t.store.Task(ctx, id)
+}
+
+// UnfiledNoteCount is how many Notes are waiting to be filed onto a Task.
+func (t *Tracker) UnfiledNoteCount(ctx context.Context) (int, error) {
+	return t.store.UnfiledNoteCount(ctx)
+}
