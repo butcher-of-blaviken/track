@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
 )
@@ -170,4 +171,14 @@ func (x *tx) LatestSession() (core.FocusSession, error) {
 		return core.FocusSession{}, core.ErrNotFound
 	}
 	return cloneSession(x.st.sessions[len(x.st.sessions)-1]), nil
+}
+
+func (x *tx) CompletedSessionCount(now time.Time) (int, error) {
+	n := 0
+	for _, sess := range x.st.sessions {
+		if sess.Outcome(now) == core.OutcomeCompleted {
+			n++
+		}
+	}
+	return n, nil
 }

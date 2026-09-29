@@ -106,7 +106,13 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("init migrations: %w", err)
 	}
 	if _, err := p.Up(ctx); err != nil {
-		return fmt.Errorf("migrate: %w", err)
+		// goose reads the applied versions before taking the write lock, so when
+		// two processes open a database that needs migrating, the second one
+		// tries to re-apply what the first just committed and fails. That is
+		// fine if the schema is now up to date.
+		if current, target, verr := p.GetVersions(ctx); verr != nil || current < target {
+			return fmt.Errorf("migrate: %w", err)
+		}
 	}
 	// goose ignores applied migrations it has no file for, so a database from
 	// a newer build would open silently; refuse it instead.
@@ -122,7 +128,7 @@ func (s *Store) migrate(ctx context.Context) error {
 
 func toTime(nanos int64) time.Time { return time.Unix(0, nanos).UTC() }
 
-const sessionColumns = `id, task_id, started_at, planned_ns, stopped_at`
+const sessionColumns = `id, task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -132,12 +138,16 @@ func scanSession(r scanner) (core.FocusSession, error) {
 		started int64
 		planned int64
 		stopped sql.NullInt64
+		brk     int64
+		skipped int64
 	)
-	if err := r.Scan(&sess.ID, &sess.TaskID, &started, &planned, &stopped); err != nil {
+	if err := r.Scan(&sess.ID, &sess.TaskID, &started, &planned, &stopped, &brk, &sess.LongBreak, &skipped); err != nil {
 		return core.FocusSession{}, err
 	}
 	sess.StartedAt = toTime(started)
 	sess.PlannedDuration = time.Duration(planned)
+	sess.BreakDuration = time.Duration(brk)
+	sess.SkippedBreak = time.Duration(skipped)
 	if stopped.Valid {
 		t := toTime(stopped.Int64)
 		sess.StoppedAt = &t
@@ -341,8 +351,10 @@ func (x *tx) CreateSession(sess core.FocusSession) (core.SessionID, error) {
 		return 0, err
 	}
 	res, err := x.tx.ExecContext(x.ctx,
-		`INSERT INTO sessions (task_id, started_at, planned_ns, stopped_at) VALUES (?, ?, ?, ?)`,
-		sess.TaskID, sess.StartedAt.UnixNano(), int64(sess.PlannedDuration), stoppedNanos(sess.StoppedAt))
+		`INSERT INTO sessions (task_id, started_at, planned_ns, stopped_at, break_ns, long_break, skipped_break_ns)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sess.TaskID, sess.StartedAt.UnixNano(), int64(sess.PlannedDuration), stoppedNanos(sess.StoppedAt),
+		int64(sess.BreakDuration), sess.LongBreak, int64(sess.SkippedBreak))
 	if err != nil {
 		return 0, err
 	}
@@ -378,4 +390,12 @@ func stoppedNanos(t *time.Time) sql.NullInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{Int64: t.UnixNano(), Valid: true}
+}
+
+func (x *tx) CompletedSessionCount(now time.Time) (int, error) {
+	var n int
+	err := x.tx.QueryRowContext(x.ctx,
+		`SELECT COUNT(*) FROM sessions WHERE stopped_at IS NULL AND started_at + planned_ns <= ?`,
+		now.UnixNano()).Scan(&n)
+	return n, err
 }

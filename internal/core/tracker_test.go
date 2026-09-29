@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -22,9 +23,20 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	return newRigWithPolicy(t, testPolicy)
+}
+
+var testPolicy = core.BreakPolicy{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 4}
+
+func newRigWithPolicy(t *testing.T, policy core.BreakPolicy) *rig {
+	t.Helper()
 	store := memory.New()
 	fake := clock.NewFake(sessionStart)
-	return &rig{tracker: core.NewTracker(store, fake), store: store, clock: fake}
+	tracker, err := core.NewTracker(store, fake, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &rig{tracker: tracker, store: store, clock: fake}
 }
 
 // addTask saves a Task in the given state and returns its ID.
@@ -56,7 +68,7 @@ func TestStartSession_RecordsStartAndPlannedDuration(t *testing.T) {
 	task := r.addTask(t, core.StateActive)
 
 	r.clock.Advance(5 * time.Minute)
-	got, err := r.tracker.StartSession(ctx, task, 30*time.Minute)
+	got, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -82,13 +94,13 @@ func TestStartSession_RejectsASecondSessionWhileOneIsRunning(t *testing.T) {
 	r := newRig(t)
 	task := r.addTask(t, core.StateActive)
 	other := r.addTask(t, core.StateActive)
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
 	r.clock.Advance(29 * time.Minute)
 	for _, id := range []core.TaskID{task, other} {
-		if _, err := r.tracker.StartSession(ctx, id, 30*time.Minute); !errors.Is(err, core.ErrSessionRunning) {
+		if _, err := r.tracker.StartSession(ctx, id, 30*time.Minute, core.StartOptions{}); !errors.Is(err, core.ErrSessionRunning) {
 			t.Errorf("StartSession(task %d) error = %v, want ErrSessionRunning", id, err)
 		}
 	}
@@ -97,15 +109,15 @@ func TestStartSession_RejectsASecondSessionWhileOneIsRunning(t *testing.T) {
 	}
 }
 
-func TestStartSession_IsAllowedOnceThePreviousSessionCompleted(t *testing.T) {
+func TestStartSession_IsAllowedOnceThePreviousSessionAndItsBreakAreOver(t *testing.T) {
 	r := newRig(t)
 	task := r.addTask(t, core.StateActive)
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	r.clock.Advance(30 * time.Minute) // exactly the planned end
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	r.clock.Advance(30*time.Minute + testPolicy.Short) // exactly the end of the Break
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Errorf("StartSession after completion: %v", err)
 	}
 	if n := len(r.sessions(t)); n != 2 {
@@ -133,7 +145,7 @@ func TestStartSession_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := r.tracker.StartSession(ctx, tt.task, tt.planned); !errors.Is(err, tt.want) {
+			if _, err := r.tracker.StartSession(ctx, tt.task, tt.planned, core.StartOptions{}); !errors.Is(err, tt.want) {
 				t.Errorf("error = %v, want %v", err, tt.want)
 			}
 		})
@@ -146,7 +158,7 @@ func TestStartSession_Validation(t *testing.T) {
 func TestStopSession_EndsTheRunningSessionEarlyAndKeepsElapsedTime(t *testing.T) {
 	r := newRig(t)
 	task := r.addTask(t, core.StateActive)
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +189,7 @@ func TestStopSession_WithNothingRunningIsAnError(t *testing.T) {
 	}
 
 	// A session past its planned end has already completed; it is not stopped early.
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	r.clock.Advance(30*time.Minute + 5*time.Second)
@@ -189,7 +201,8 @@ func TestStopSession_WithNothingRunningIsAnError(t *testing.T) {
 	}
 
 	// A session that was already stopped cannot be stopped again.
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	r.clock.Advance(testPolicy.Short) // let the completed session's Break end first
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.tracker.StopSession(ctx); err != nil {
@@ -203,7 +216,7 @@ func TestStopSession_WithNothingRunningIsAnError(t *testing.T) {
 func TestStartSession_AfterAnEarlyStopBeginsAFreshFullLengthSession(t *testing.T) {
 	r := newRig(t)
 	task := r.addTask(t, core.StateActive)
-	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute); err != nil {
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	r.clock.Advance(15 * time.Minute)
@@ -211,7 +224,7 @@ func TestStartSession_AfterAnEarlyStopBeginsAFreshFullLengthSession(t *testing.T
 		t.Fatal(err)
 	}
 
-	second, err := r.tracker.StartSession(ctx, task, 30*time.Minute)
+	second, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{})
 	if err != nil {
 		t.Fatalf("StartSession after early stop: %v", err)
 	}
@@ -221,5 +234,133 @@ func TestStartSession_AfterAnEarlyStopBeginsAFreshFullLengthSession(t *testing.T
 	all := r.sessions(t)
 	if len(all) != 2 || all[0].Elapsed(r.clock.Now()) != 15*time.Minute {
 		t.Errorf("sessions = %+v, want the first kept at 15m elapsed", all)
+	}
+}
+
+// completeSession starts a 30m session and lets it run to its end and through
+// its Break, so the next start is not locked.
+func (r *rig) completeSession(t *testing.T, task core.TaskID) core.FocusSession {
+	t.Helper()
+	got, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	r.clock.Advance(30*time.Minute + got.BreakDuration)
+	return got
+}
+
+func TestStartSession_PlansALongBreakEveryNthCompletedSession(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, core.StateActive)
+
+	var long []bool
+	var lengths []time.Duration
+	for range 5 {
+		s := r.completeSession(t, task)
+		long = append(long, s.LongBreak)
+		lengths = append(lengths, s.BreakDuration)
+	}
+	wantLong := []bool{false, false, false, true, false}
+	wantLengths := []time.Duration{10 * time.Minute, 10 * time.Minute, 10 * time.Minute, 20 * time.Minute, 10 * time.Minute}
+	if !slices.Equal(long, wantLong) || !slices.Equal(lengths, wantLengths) {
+		t.Errorf("long = %v, lengths = %v; want %v, %v", long, lengths, wantLong, wantLengths)
+	}
+
+	// The plan is stored on the session, so it survives later config changes.
+	stored := r.sessions(t)
+	if !stored[3].LongBreak || stored[3].BreakDuration != 20*time.Minute {
+		t.Errorf("stored 4th session = %+v, want the long Break recorded", stored[3])
+	}
+}
+
+func TestStartSession_EarlyStopsDoNotAdvanceTheLongBreakCount(t *testing.T) {
+	r := newRigWithPolicy(t, core.BreakPolicy{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 2})
+	task := r.addTask(t, core.StateActive)
+
+	r.completeSession(t, task) // completed #1
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(5 * time.Minute)
+	if _, err := r.tracker.StopSession(ctx); err != nil { // stopped early: not counted
+		t.Fatal(err)
+	}
+
+	third, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !third.LongBreak || third.BreakDuration != 20*time.Minute {
+		t.Errorf("third session = %+v, want the long Break (second completed session)", third)
+	}
+}
+
+func TestNewTracker_RejectsAnInvalidBreakPolicy(t *testing.T) {
+	bad := []core.BreakPolicy{
+		{Short: 0, Long: 20 * time.Minute, LongEvery: 4},
+		{Short: 10 * time.Minute, Long: 0, LongEvery: 4},
+		{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 0},
+		{Short: -time.Minute, Long: 20 * time.Minute, LongEvery: 4},
+	}
+	for _, policy := range bad {
+		if _, err := core.NewTracker(memory.New(), clock.NewFake(sessionStart), policy); !errors.Is(err, core.ErrInvalidBreakPolicy) {
+			t.Errorf("NewTracker(%+v) error = %v, want ErrInvalidBreakPolicy", policy, err)
+		}
+	}
+}
+
+func TestStartSession_SoftLockDuringABreak(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, core.StateActive)
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(34 * time.Minute) // 4m into the 10m Break: 6m left
+
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); !errors.Is(err, core.ErrBreakActive) {
+		t.Fatalf("StartSession during a Break error = %v, want ErrBreakActive", err)
+	}
+	if n := len(r.sessions(t)); n != 1 {
+		t.Fatalf("%d sessions stored after a locked start, want 1", n)
+	}
+
+	got, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{OverrideBreak: true})
+	if err != nil {
+		t.Fatalf("overridden StartSession: %v", err)
+	}
+	if got.SkippedBreak != 6*time.Minute {
+		t.Errorf("SkippedBreak = %v, want 6m", got.SkippedBreak)
+	}
+	stored := r.sessions(t)
+	if len(stored) != 2 || stored[1].SkippedBreak != 6*time.Minute {
+		t.Errorf("stored sessions = %+v, want the override recorded on the second", stored)
+	}
+}
+
+func TestStartSession_OverrideWithNoBreakRecordsNothing(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, core.StateActive)
+
+	got, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{OverrideBreak: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SkippedBreak != 0 {
+		t.Errorf("SkippedBreak = %v, want 0 when there was no Break to skip", got.SkippedBreak)
+	}
+}
+
+func TestStartSession_NoLockAfterAnEarlyStopBecauseNoBreakFollows(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, core.StateActive)
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(10 * time.Minute)
+	if _, err := r.tracker.StopSession(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Errorf("StartSession right after an early stop: %v", err)
 	}
 }

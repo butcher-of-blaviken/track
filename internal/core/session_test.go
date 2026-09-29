@@ -41,3 +41,32 @@ func TestFocusSession_OutcomeAndElapsed(t *testing.T) {
 		})
 	}
 }
+
+func TestFocusSession_BreakRemaining(t *testing.T) {
+	stoppedAt := sessionStart.Add(12 * time.Minute)
+	completing := core.FocusSession{StartedAt: sessionStart, PlannedDuration: 30 * time.Minute, BreakDuration: 10 * time.Minute}
+	stopped := completing
+	stopped.StoppedAt = &stoppedAt
+	end := sessionStart.Add(30 * time.Minute)
+
+	tests := []struct {
+		name    string
+		session core.FocusSession
+		now     time.Time
+		want    time.Duration
+	}{
+		{"none while the session is running", completing, sessionStart.Add(29 * time.Minute), 0},
+		{"the full Break right at completion", completing, end, 10 * time.Minute},
+		{"counts down", completing, end.Add(4 * time.Minute), 6 * time.Minute},
+		{"zero exactly when the Break ends", completing, end.Add(10 * time.Minute), 0},
+		{"zero long after the Break", completing, end.Add(5 * time.Hour), 0},
+		{"none after an early stop", stopped, stoppedAt.Add(time.Minute), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.session.BreakRemaining(tt.now); got != tt.want {
+				t.Errorf("BreakRemaining = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
