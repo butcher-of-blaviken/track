@@ -1,8 +1,10 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/butcher-of-blaviken/track/internal/clock"
@@ -136,4 +138,43 @@ func (t *Tracker) StopSession(ctx context.Context) (FocusSession, error) {
 		return nil
 	})
 	return session, err
+}
+
+// AddTask creates an Active Task from free text. ##tag markers in the text
+// become the Task's Tags and are stripped from its title. The returned Task has
+// its Tags in first-use casing.
+func (t *Tracker) AddTask(ctx context.Context, text string) (Task, error) {
+	title, tags, err := ParseTaskText(text)
+	if err != nil {
+		return Task{}, err
+	}
+	var task Task
+	err = t.store.Update(ctx, func(tx Tx) error {
+		id, err := tx.CreateTask(Task{Title: title, State: StateActive, Tags: tags, CreatedAt: t.clock.Now()})
+		if err != nil {
+			return err
+		}
+		task, err = tx.Task(id) // re-read: the store canonicalizes Tag casing
+		return err
+	})
+	return task, err
+}
+
+// Tasks returns the Tasks in any of the given states, newest first. With no
+// states it returns every Task.
+func (t *Tracker) Tasks(ctx context.Context, states ...State) ([]Task, error) {
+	all, err := t.store.Tasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []Task{}
+	for _, task := range all {
+		if len(states) == 0 || slices.Contains(states, task.State) {
+			out = append(out, task)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Task) int {
+		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), cmp.Compare(b.ID, a.ID))
+	})
+	return out, nil
 }

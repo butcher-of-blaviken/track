@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,4 +108,31 @@ func TestShowsTheFocusToBreakToIdleCycleAsTimePasses(t *testing.T) {
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
 	}
+}
+
+func TestAddATaskFromTheKeyboardAndItSurvivesARestart(t *testing.T) {
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+
+	tm.press("a")
+	tm.waitFor(`Add task`, wait)
+	tm.typeText("finishing up auth ##PROJ-123")
+	tm.press("Enter")
+
+	screen := tm.waitFor(`finishing up auth\s+#PROJ-123`, wait)
+	if strings.Contains(screen, "##") {
+		t.Errorf("the tag should show as #PROJ-123, not with the ## marker:\n%s", screen)
+	}
+	if strings.Contains(screen, "Add task") {
+		t.Errorf("the prompt should close after adding:\n%s", screen)
+	}
+
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+
+	again := launch(t, nil, "--data-dir", dir)
+	again.waitFor(`finishing up auth\s+#PROJ-123`, wait)
 }

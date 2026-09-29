@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/clock"
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -192,14 +192,21 @@ func TestUpdate_QuitsOnQAndCtrlC(t *testing.T) {
 func TestView_FitsAnyTerminalSizeWithoutPanicking(t *testing.T) {
 	r := newRig(t)
 	r.startSession(t)
-	r.clock.Advance(34 * time.Minute) // Break with a hand-off due: the busiest screen
+	r.addTask(t, "a task with a rather long title to force truncation ##some-long-tag-name")
+	r.clock.Advance(34 * time.Minute) // Break with a hand-off due: the busiest status
 	m := booted(r.newModel())
+	m = press(m, keyA) // and the add prompt open
+	m = typeText(m, "typing a long long long long long long long long line")
 
 	for _, size := range []tea.WindowSizeMsg{{Width: 0, Height: 0}, {Width: 1, Height: 1}, {Width: 10, Height: 3}, {Width: 80, Height: 24}, {Width: 300, Height: 100}} {
 		m = send(m, size)
-		for i, line := range strings.Split(screen(m), "\n") {
-			if size.Width > 0 && utf8.RuneCountInString(line) > size.Width {
-				t.Errorf("%dx%d: line %d is %d cells wide: %q", size.Width, size.Height, i, utf8.RuneCountInString(line), line)
+		lines := strings.Split(screen(m), "\n")
+		if size.Height > 0 && len(lines) > size.Height {
+			t.Errorf("%dx%d: %d lines, want at most %d", size.Width, size.Height, len(lines), size.Height)
+		}
+		for i, line := range lines {
+			if w := ansi.StringWidth(line); size.Width > 0 && w > size.Width {
+				t.Errorf("%dx%d: line %d is %d cells wide: %q", size.Width, size.Height, i, w, line)
 			}
 		}
 	}

@@ -109,6 +109,14 @@ func (tm *term) press(keys ...string) {
 	}
 }
 
+// typeText types text literally, as if the user typed it.
+func (tm *term) typeText(text string) {
+	tm.t.Helper()
+	if out, err := tm.tmux("send-keys", "-l", "-t", "app", text).CombinedOutput(); err != nil {
+		tm.t.Fatalf("send-keys: %v\n%s", err, out)
+	}
+}
+
 // exitStatus waits for the app to exit and returns its status.
 func (tm *term) exitStatus(timeout time.Duration) int {
 	tm.t.Helper()
