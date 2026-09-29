@@ -22,6 +22,9 @@ type Store interface {
 	Task(ctx context.Context, id TaskID) (Task, error)
 	// Sessions returns all Focus sessions, ordered by ID ascending.
 	Sessions(ctx context.Context) ([]FocusSession, error)
+	// LatestSession returns the session with the highest ID, or ErrNotFound if
+	// there are none. It is a cheap read for callers that poll, unlike Sessions.
+	LatestSession(ctx context.Context) (FocusSession, error)
 	// Notes returns all Notes, filed and unfiled, ordered by ID ascending.
 	Notes(ctx context.Context) ([]Note, error)
 	// Update runs fn in a transaction. If fn returns an error, none of its

@@ -195,6 +195,16 @@ func scanNote(r scanner) (core.Note, error) {
 
 const noteColumns = `id, task_id, session_id, text, created_at`
 
+// LatestSession implements core.Store.
+func (s *Store) LatestSession(ctx context.Context) (core.FocusSession, error) {
+	sess, err := scanSession(s.db.QueryRowContext(ctx,
+		`SELECT `+sessionColumns+` FROM sessions ORDER BY id DESC LIMIT 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.FocusSession{}, core.ErrNotFound
+	}
+	return sess, err
+}
+
 // Notes implements core.Store.
 func (s *Store) Notes(ctx context.Context) ([]core.Note, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+noteColumns+` FROM notes ORDER BY id`)

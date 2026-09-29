@@ -66,6 +66,16 @@ func cloneSession(s core.FocusSession) core.FocusSession {
 	return s
 }
 
+// LatestSession implements core.Store.
+func (s *Store) LatestSession(context.Context) (core.FocusSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.st.sessions) == 0 {
+		return core.FocusSession{}, core.ErrNotFound
+	}
+	return cloneSession(s.st.sessions[len(s.st.sessions)-1]), nil
+}
+
 // Notes implements core.Store.
 func (s *Store) Notes(context.Context) ([]core.Note, error) {
 	s.mu.Lock()
