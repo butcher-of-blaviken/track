@@ -8,11 +8,11 @@ import (
 
 func TestNewTask_StartsActive(t *testing.T) {
 	task := core.NewTask("write the PRD")
-	if got := task.State(); got != core.StateActive {
-		t.Errorf("State() = %v, want Active", got)
+	if got := task.State; got != core.StateActive {
+		t.Errorf("State = %v, want Active", got)
 	}
-	if got := task.Title(); got != "write the PRD" {
-		t.Errorf("Title() = %q, want %q", got, "write the PRD")
+	if got := task.Title; got != "write the PRD" {
+		t.Errorf("Title = %q, want %q", got, "write the PRD")
 	}
 }
 
@@ -21,8 +21,8 @@ func TestTask_DoneMovesActiveToDone(t *testing.T) {
 	if err := task.Done(); err != nil {
 		t.Fatalf("Done() error: %v", err)
 	}
-	if got := task.State(); got != core.StateDone {
-		t.Errorf("State() = %v, want Done", got)
+	if got := task.State; got != core.StateDone {
+		t.Errorf("State = %v, want Done", got)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestTask_Transitions(t *testing.T) {
 				if err == nil {
 					t.Fatalf("%s from state %v returned no error", tt.op, tt.from)
 				}
-				if got := task.State(); got != tt.from {
+				if got := task.State; got != tt.from {
 					t.Errorf("state changed to %v despite error, want %v", got, tt.from)
 				}
 				return
@@ -88,7 +88,7 @@ func TestTask_Transitions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got := task.State(); got != tt.want {
+			if got := task.State; got != tt.want {
 				t.Errorf("state = %v, want %v", got, tt.want)
 			}
 		})
