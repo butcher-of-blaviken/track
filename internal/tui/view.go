@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -38,7 +39,11 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) header() []string {
-	lines := []string{"Track", ""}
+	lines := []string{"Track"}
+	if banner := m.banner(); banner != "" {
+		lines = append(lines, banner)
+	}
+	lines = append(lines, "")
 	switch {
 	case m.err != nil:
 		lines = append(lines, "  error: "+m.err.Error())
@@ -54,6 +59,23 @@ func (m Model) header() []string {
 		}
 	}
 	return append(lines, "")
+}
+
+// banner is the reverse-video bar shown while a bell is ringing and unsilenced.
+func (m Model) banner() string {
+	b := m.snap.Bell
+	if b == nil || m.bell.acked {
+		return ""
+	}
+	text := "Focus complete — Break started (press any key)"
+	if b.Kind == core.BellBreakEnd {
+		text = "Break over — ready for the next session (press any key)"
+	}
+	line := "  " + text
+	if pad := m.width - ansi.StringWidth(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return lipgloss.NewStyle().Reverse(true).Bold(true).Render(line)
 }
 
 func (m Model) footer() []string {

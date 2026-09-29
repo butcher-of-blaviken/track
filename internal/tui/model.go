@@ -92,6 +92,23 @@ type Model struct {
 
 	keys keyMap
 	help help.Model
+
+	bell ringState
+}
+
+// bellID identifies one bell event: the end of a session, or of its Break.
+type bellID struct {
+	session core.SessionID
+	kind    core.BellKind
+}
+
+// ringState is the acknowledgement state the core leaves to the UI, for the
+// latest bell event only: how many rings this program has made, and whether the
+// user has silenced it.
+type ringState struct {
+	id    bellID
+	rung  int
+	acked bool
 }
 
 // New returns a Model that reads its state from tracker.
@@ -207,6 +224,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.tasks, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.tasks, msg.sessionTask, msg.unfiled, true
 			m.reselect()
+			return m, m.ring()
 		}
 		return m, nil
 	case sessionMsg:
@@ -229,6 +247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scrollToCursor()
 		return m, nil
 	case tea.KeyPressMsg:
+		m.acknowledgeBell() // any key silences a ringing bell; it is still handled below
 		if m.adding {
 			return m.updatePrompt(msg)
 		}
@@ -239,6 +258,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.forwardToPrompt(msg)
 	}
 	return m, nil
+}
+
+// ring returns the command that rings the terminal bell when the core says
+// more rings are due for the current event than have been made. It rings once
+// per refresh however many are due, so reopening the app or a stalled tick does
+// not fire a burst.
+func (m *Model) ring() tea.Cmd {
+	b := m.snap.Bell
+	if b == nil {
+		m.bell = ringState{}
+		return nil
+	}
+	if id := (bellID{session: b.Session, kind: b.Kind}); m.bell.id != id {
+		m.bell = ringState{id: id}
+	}
+	if m.bell.acked || b.Scheduled <= m.bell.rung {
+		return nil
+	}
+	m.bell.rung = b.Scheduled
+	return tea.Raw("\a")
+}
+
+func (m *Model) acknowledgeBell() {
+	if m.snap.Bell != nil {
+		m.bell.acked = true
+	}
 }
 
 func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
