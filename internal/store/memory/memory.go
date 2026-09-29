@@ -23,12 +23,16 @@ type state struct {
 	// sessions are kept in ID order, which is also creation order.
 	sessions      []core.FocusSession
 	nextSessionID core.SessionID
+	// notes are kept in ID order.
+	notes      []core.Note
+	nextNoteID core.NoteID
 }
 
 func (st state) clone() state {
 	return state{
 		tasks: maps.Clone(st.tasks), nextID: st.nextID, tags: maps.Clone(st.tags),
 		sessions: slices.Clone(st.sessions), nextSessionID: st.nextSessionID,
+		notes: slices.Clone(st.notes), nextNoteID: st.nextNoteID,
 	}
 }
 
@@ -42,7 +46,7 @@ var _ core.Store = (*Store)(nil)
 
 // New returns an empty Store.
 func New() *Store {
-	return &Store{st: state{tasks: map[core.TaskID]core.Task{}, nextID: 1, tags: map[string]string{}, nextSessionID: 1}}
+	return &Store{st: state{tasks: map[core.TaskID]core.Task{}, nextID: 1, tags: map[string]string{}, nextSessionID: 1, nextNoteID: 1}}
 }
 
 func cloneTask(t core.Task) core.Task {
@@ -55,7 +59,18 @@ func cloneSession(s core.FocusSession) core.FocusSession {
 		stopped := *s.StoppedAt
 		s.StoppedAt = &stopped
 	}
+	if s.HandoffAt != nil {
+		handoff := *s.HandoffAt
+		s.HandoffAt = &handoff
+	}
 	return s
+}
+
+// Notes implements core.Store.
+func (s *Store) Notes(context.Context) ([]core.Note, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.st.notes), nil
 }
 
 // Sessions implements core.Store.
@@ -161,7 +176,8 @@ func (x *tx) SaveSession(sess core.FocusSession) error {
 		return core.ErrNotFound
 	}
 	updated := x.st.sessions[i] // cloned slice header, so replacing the element is transaction-local
-	updated.StoppedAt = cloneSession(sess).StoppedAt
+	saved := cloneSession(sess)
+	updated.StoppedAt, updated.HandoffAt = saved.StoppedAt, saved.HandoffAt
 	x.st.sessions[i] = updated
 	return nil
 }
@@ -181,4 +197,39 @@ func (x *tx) CompletedSessionCount(now time.Time) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+func (x *tx) CreateNote(n core.Note) (core.NoteID, error) {
+	if n.TaskID != 0 {
+		if _, ok := x.st.tasks[n.TaskID]; !ok {
+			return 0, core.ErrNotFound
+		}
+	}
+	if n.SessionID != 0 && !slices.ContainsFunc(x.st.sessions, func(c core.FocusSession) bool { return c.ID == n.SessionID }) {
+		return 0, core.ErrNotFound
+	}
+	n.ID = x.st.nextNoteID
+	x.st.nextNoteID++
+	x.st.notes = append(x.st.notes, n)
+	return n.ID, nil
+}
+
+func (x *tx) Note(id core.NoteID) (core.Note, error) {
+	i := slices.IndexFunc(x.st.notes, func(n core.Note) bool { return n.ID == id })
+	if i < 0 {
+		return core.Note{}, core.ErrNotFound
+	}
+	return x.st.notes[i], nil
+}
+
+func (x *tx) SaveNote(n core.Note) error {
+	i := slices.IndexFunc(x.st.notes, func(c core.Note) bool { return c.ID == n.ID })
+	if i < 0 {
+		return core.ErrNotFound
+	}
+	if _, ok := x.st.tasks[n.TaskID]; !ok {
+		return core.ErrNotFound
+	}
+	x.st.notes[i].TaskID = n.TaskID
+	return nil
 }

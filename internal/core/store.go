@@ -22,6 +22,8 @@ type Store interface {
 	Task(ctx context.Context, id TaskID) (Task, error)
 	// Sessions returns all Focus sessions, ordered by ID ascending.
 	Sessions(ctx context.Context) ([]FocusSession, error)
+	// Notes returns all Notes, filed and unfiled, ordered by ID ascending.
+	Notes(ctx context.Context) ([]Note, error)
 	// Update runs fn in a transaction. If fn returns an error, none of its
 	// writes are applied and that error is returned.
 	Update(ctx context.Context, fn func(Tx) error) error
@@ -39,15 +41,24 @@ type Tx interface {
 	// CreateSession saves s as a new Focus session, ignoring s.ID, and returns
 	// its ID. It returns ErrNotFound if s.TaskID is not an existing Task.
 	CreateSession(s FocusSession) (SessionID, error)
-	// SaveSession records that a session was stopped: it persists StoppedAt
-	// only. The other fields, including the Break plan, are immutable, so
-	// changes to them are ignored.
+	// SaveSession records how a session ended: it persists StoppedAt and
+	// HandoffAt only. The other fields, including the Break plan, are
+	// immutable, so changes to them are ignored.
 	// It returns ErrNotFound if the session does not exist.
 	SaveSession(s FocusSession) error
 	// LatestSession returns the session with the highest ID, or ErrNotFound if
 	// there are none. Only one session runs at a time, so the latest is the
 	// only one that can be running.
 	LatestSession() (FocusSession, error)
+	// CreateNote saves n as a new Note, ignoring n.ID, and returns its ID. It
+	// returns ErrNotFound if n.TaskID or n.SessionID is set but does not exist.
+	CreateNote(n Note) (NoteID, error)
+	// Note returns the Note with the given ID, or ErrNotFound.
+	Note(id NoteID) (Note, error)
+	// SaveNote files a Note onto a Task: it persists TaskID only, and the
+	// other fields are immutable. It returns ErrNotFound if the note or the
+	// Task does not exist.
+	SaveNote(n Note) error
 	// CompletedSessionCount counts the sessions that ran their full planned
 	// length by now: not stopped early, and past their planned end.
 	CompletedSessionCount(now time.Time) (int, error)

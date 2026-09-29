@@ -53,6 +53,9 @@ type FocusSession struct {
 	// SkippedBreak is the Break time that was left when this session was
 	// started during a Break with the user's confirmation; zero otherwise.
 	SkippedBreak time.Duration
+	// HandoffAt is when the Hand-off note for this session was written or
+	// skipped. It is nil while the hand-off is pending.
+	HandoffAt *time.Time
 }
 
 // PlannedEnd is when the session completes if it is not stopped.
