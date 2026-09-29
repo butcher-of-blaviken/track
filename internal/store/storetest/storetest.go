@@ -28,6 +28,7 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 		{"TagsShareFirstUseCasing", tagsShareFirstUseCasing},
 		{"UpdateIsAtomic", updateIsAtomic},
 		{"TasksListsAllStatesInIDOrder", tasksListsAllStatesInIDOrder},
+		{"TagCasingFoldsUnicode", tagCasingFoldsUnicode},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.run(t, newStore(t)) })
@@ -226,5 +227,17 @@ func tasksListsAllStatesInIDOrder(t *testing.T, s core.Store) {
 	}
 	if got[1].State != core.StateDone || got[2].State != core.StateArchived {
 		t.Errorf("states = %v, %v; want Done, Archived", got[1].State, got[2].State)
+	}
+}
+
+func tagCasingFoldsUnicode(t *testing.T, s core.Store) {
+	createTask(t, s, core.Task{Title: "a", Tags: []string{"Ünï"}, CreatedAt: created})
+	id := createTask(t, s, core.Task{Title: "b", Tags: []string{"ünï"}, CreatedAt: created})
+	got, err := s.Task(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Task(%d): %v", id, err)
+	}
+	if !reflect.DeepEqual(got.Tags, []string{"Ünï"}) {
+		t.Errorf("tags = %v, want [Ünï]", got.Tags)
 	}
 }
