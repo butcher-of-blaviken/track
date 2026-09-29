@@ -1,4 +1,4 @@
-.PHONY: build run fmt vet lint test check clean
+.PHONY: build run fmt vet lint test e2e check clean
 
 build:
 	go build -o track .
@@ -17,6 +17,10 @@ lint:
 
 test:
 	go test ./...
+
+# End-to-end tests drive the real binary in tmux (needs tmux; ~30s).
+e2e:
+	go test -tags e2e -count=1 -timeout 3m ./e2e/
 
 # Run everything CI runs, in order. Run before pushing.
 check:

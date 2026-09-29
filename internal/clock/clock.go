@@ -3,6 +3,8 @@
 package clock
 
 import (
+	"errors"
+	"math"
 	"sync"
 	"time"
 )
@@ -49,3 +51,30 @@ type System struct{}
 
 // Now returns the current time.
 func (System) Now() time.Time { return time.Now() }
+
+// ErrInvalidScale is returned for a scale factor that is not a positive, finite number.
+var ErrInvalidScale = errors.New("clock scale factor must be positive and finite")
+
+// Scaled is a Clock that runs at a multiple of its base clock's speed, starting
+// from the base's time at creation. It exists so headless runs can watch a
+// 30-minute session pass in seconds.
+type Scaled struct {
+	base   Clock
+	start  time.Time
+	factor float64
+}
+
+// NewScaled returns a Scaled clock that starts at base.Now() and then runs
+// factor times as fast as base.
+func NewScaled(base Clock, factor float64) (*Scaled, error) {
+	if factor <= 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return nil, ErrInvalidScale
+	}
+	return &Scaled{base: base, start: base.Now(), factor: factor}, nil
+}
+
+// Now returns the scaled current time.
+func (s *Scaled) Now() time.Time {
+	elapsed := s.base.Now().Sub(s.start)
+	return s.start.Add(time.Duration(float64(elapsed) * s.factor))
+}

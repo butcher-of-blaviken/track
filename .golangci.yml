@@ -1,12 +1,29 @@
 version: "2"
 
+run:
+  build-tags:
+    - e2e
+
 linters:
   default: standard
   enable:
+    - depguard
     - misspell
     - unconvert
     - errorlint
     - revive
+  settings:
+    depguard:
+      rules:
+        core-has-no-ui:
+          # ADR-0002: the domain core must not depend on any UI.
+          files:
+            - "**/internal/core/**"
+          deny:
+            - pkg: charm.land
+              desc: internal/core must not import UI packages (ADR-0002)
+            - pkg: github.com/butcher-of-blaviken/track/internal/tui
+              desc: internal/core must not import the TUI (ADR-0002)
 formatters:
   enable:
     - gofmt

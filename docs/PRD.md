@@ -93,10 +93,12 @@ See CONTEXT.md. In brief: a **Task** (Active, Done or Archived) has **Tags** and
 
 ## Testability and headless operation
 
-- The TUI must be drivable headlessly: a fixed terminal size (e.g. via flags or environment) and an injectable clock, so a full Focus, Break and Hand-off cycle can be exercised in seconds by an automated driver (tmux `send-keys` and `capture-pane`, or `teatest`) without waiting real time.
-- The clock and data directory must be overridable without touching the user's real data (e.g. a `--data-dir` flag or environment variable), so test runs are isolated.
-- Behaviour is tested mainly against the core with a fake clock. UI tests only cover rendering and key handling.
-- Automated checks verify that the bell character was emitted. Audibility and visual design are checked by hand.
+- The TUI is drivable headlessly without special app support for terminal size: tmux provides a real pseudo-terminal at any size (e.g. 80x24) and an automated driver uses `tmux send-keys` and `capture-pane`.
+- Isolation and speed come from two switches: `--data-dir` points the app at a throwaway data directory, and the deliberately undocumented `TRACK_TIME_SCALE=<n>` environment variable runs the clock `n` times faster than real time, so a full Focus, Break and Hand-off cycle passes in seconds.
+- Behaviour is tested mainly against the core with a fake clock. The TUI model is tested by calling `Update` and `View` directly (no terminal). A small number of tmux end-to-end tests (`make e2e`) cover the real binary; they assert only on stable labels and shapes (e.g. `Idle`, `Focus`, `Break`, `Hand-off due`, an `mm:ss` countdown, exit status), never layout or style, so UI redesigns do not break them.
+- Bubble Tea's `teatest` is not used: its upstream golden-output test is disabled because colour escape sequences break output comparison.
+- Automated checks can verify that the bell was rung (tmux exposes a bell flag; to be confirmed in #21). Audibility and visual design are checked by hand.
+- `internal/core` must not import UI packages; a `depguard` lint rule enforces this (ADR-0002).
 
 ## Distribution
 
@@ -114,7 +116,7 @@ See CONTEXT.md. In brief: a **Task** (Active, Done or Archived) has **Tags** and
 - Bell repeat count and interval follow config, and a keypress silences it.
 - Changing `focus_duration` never alters an existing session's recorded duration.
 - The core builds and its tests run with no Bubble Tea import.
-- With a fixed terminal size, an injected clock and an isolated data directory, an automated driver can run a full Focus, Break and Hand-off cycle and assert on the rendered screen.
+- With an isolated data directory and a scaled clock, an automated tmux driver can run a full Focus, Break and Hand-off cycle and assert on the rendered screen.
 
 ## v2 candidates
 

@@ -1,6 +1,8 @@
 package clock_test
 
 import (
+	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -76,3 +78,44 @@ var (
 	_ clock.Clock = clock.System{}
 	_ clock.Clock = (*clock.Fake)(nil)
 )
+
+func TestScaled_RunsFasterThanItsBaseFromTheMomentOfCreation(t *testing.T) {
+	base := clock.NewFake(start)
+	s, err := clock.NewScaled(base, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Now(); !got.Equal(start) {
+		t.Errorf("Now() at creation = %v, want the base's time %v", got, start)
+	}
+
+	base.Advance(10 * time.Second)
+	if got, want := s.Now(), start.Add(10*time.Minute); !got.Equal(want) {
+		t.Errorf("Now() after 10s of base time = %v, want %v (60x)", got, want)
+	}
+	base.Advance(time.Second)
+	if got, want := s.Now(), start.Add(11*time.Minute); !got.Equal(want) {
+		t.Errorf("Now() after 11s of base time = %v, want %v", got, want)
+	}
+}
+
+func TestScaled_FactorOneFollowsTheBaseAndFractionsSlowItDown(t *testing.T) {
+	base := clock.NewFake(start)
+	one, _ := clock.NewScaled(base, 1)
+	half, _ := clock.NewScaled(base, 0.5)
+	base.Advance(40 * time.Second)
+	if got := one.Now(); !got.Equal(base.Now()) {
+		t.Errorf("factor 1: Now() = %v, want %v", got, base.Now())
+	}
+	if got, want := half.Now(), start.Add(20*time.Second); !got.Equal(want) {
+		t.Errorf("factor 0.5: Now() = %v, want %v", got, want)
+	}
+}
+
+func TestNewScaled_RejectsANonPositiveOrNonFiniteFactor(t *testing.T) {
+	for _, factor := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		if _, err := clock.NewScaled(clock.NewFake(start), factor); !errors.Is(err, clock.ErrInvalidScale) {
+			t.Errorf("NewScaled(%v) error = %v, want ErrInvalidScale", factor, err)
+		}
+	}
+}
