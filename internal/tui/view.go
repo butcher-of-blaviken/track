@@ -13,7 +13,18 @@ import (
 	"github.com/butcher-of-blaviken/track/internal/core"
 )
 
-const promptLabel = "  Add task: "
+const (
+	addLabel     = "  Add task: "
+	handoffLabel = "  Note: "
+)
+
+// promptLabel is the text before the input on the open prompt's line.
+func (m Model) promptLabel() string {
+	if m.mode == modeHandoff {
+		return handoffLabel
+	}
+	return addLabel
+}
 
 // View implements tea.Model.
 func (m Model) View() tea.View {
@@ -22,13 +33,18 @@ func (m Model) View() tea.View {
 	list := m.listLines(rows)
 
 	lines := append(append(append([]string{}, header...), list...), footer...)
-	promptRow := len(header) + len(list) + 1 // the footer's first line is blank
+	// The footer's first line is blank; the hand-off prompt has a context line
+	// above the input.
+	promptRow := len(header) + len(list) + 1
+	if m.mode == modeHandoff {
+		promptRow++
+	}
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.adding && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
-		c.X += ansi.StringWidth(promptLabel)
+		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
 			c.X = min(c.X, m.width-1)
 		}
@@ -79,18 +95,51 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
-	if m.adding {
-		lines := []string{"", promptLabel + m.input.View()}
-		if m.addErr != "" {
-			lines = append(lines, "  "+m.addErr)
+	if m.mode != modeList {
+		lines := []string{""}
+		help := m.keys.promptHelp()
+		if m.mode == modeHandoff {
+			lines = append(lines, m.handoffContext())
+			help = m.keys.handoffHelp()
 		}
-		return append(lines, "  "+m.helpLine(m.keys.promptHelp()))
+		lines = append(lines, m.promptLabel()+m.input.View())
+		if m.promptErr != "" {
+			lines = append(lines, "  "+m.promptErr)
+		}
+		return append(lines, "  "+m.helpLine(help))
 	}
 	lines := []string{""}
 	if m.notice != "" {
 		lines = append(lines, "  "+m.notice)
 	}
 	return append(lines, "  "+m.helpLine(m.keys.listHelp()))
+}
+
+// handoffContext names what the hand-off note is for: the Task and how long
+// ago its session ended.
+func (m Model) handoffContext() string {
+	line := "  Hand-off for: "
+	if m.sessionTask != nil {
+		line += m.sessionTask.Title
+	}
+	if m.snap.Session != nil {
+		if ended, ok := m.snap.Session.EndedAt(m.snap.At); ok {
+			line += " (ended " + agoText(m.snap.At.Sub(ended)) + ")"
+		}
+	}
+	return line
+}
+
+// agoText words a positive duration coarsely, e.g. "just now", "3m ago", "2h 5m ago".
+func agoText(d time.Duration) string {
+	mins := int(d / time.Minute)
+	switch {
+	case mins < 1:
+		return "just now"
+	case mins < 60:
+		return fmt.Sprintf("%dm ago", mins)
+	}
+	return fmt.Sprintf("%dh %dm ago", mins/60, mins%60)
 }
 
 // helpLine renders key hints with the Bubbles help styling, dropping whole

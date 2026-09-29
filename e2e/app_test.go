@@ -105,6 +105,7 @@ func TestShowsTheFocusToBreakToIdleCycleAsTimePasses(t *testing.T) {
 		t.Errorf("the hand-off should still be due after the Break:\n%s", idle)
 	}
 
+	skipHandoff(tm) // the hand-off prompt has the keyboard; skip it to quit with q
 	tm.press("q")
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
@@ -169,6 +170,7 @@ func TestStartAndStopASessionFromTheKeyboard(t *testing.T) {
 		t.Errorf("stopping early should not start a Break:\n%s", stopped)
 	}
 
+	skipHandoff(tm) // the hand-off prompt has the keyboard; skip it to quit with q
 	tm.press("q")
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
@@ -188,6 +190,7 @@ func TestAStartedSessionRunsIntoABreakWithTheHandoffDue(t *testing.T) {
 	if !strings.Contains(onBreak, "Hand-off due") {
 		t.Errorf("the Break screen does not show the hand-off due:\n%s", onBreak)
 	}
+	skipHandoff(tm) // the hand-off prompt has the keyboard; skip it to quit with q
 	tm.press("q")
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
@@ -241,4 +244,78 @@ func TestAKeyPressSilencesTheBellAndDismissesTheBanner(t *testing.T) {
 	if s := tm.screen(); !strings.Contains(s, "Hand-off due") {
 		t.Errorf("the lasting state should remain after the banner goes:\n%s", s)
 	}
+}
+
+// storedNotes reads the notes in the database, as another process would.
+func storedNotes(t *testing.T, dir string) []core.Note {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	notes, err := store.Notes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return notes
+}
+
+func TestTheHandoffPromptOpensWhenASessionEndsAndSavesANote(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRunningSession(t, dir)
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir) // 30m passes in ~15s
+
+	tm.waitFor(`Focus\s+\d\d:\d\d`, wait)
+	tm.waitFor(`Hand-off for: seeded`, 40*time.Second)
+
+	tm.typeText("left off at the parser")
+	tm.press("Enter")
+	tm.waitUntil("the prompt and the due marker to go", wait, func(s string) bool {
+		return !strings.Contains(s, "Hand-off for") && !strings.Contains(s, "Hand-off due")
+	})
+
+	notes := storedNotes(t, dir)
+	if len(notes) != 1 || notes[0].Text != "left off at the parser" || notes[0].TaskID == 0 {
+		t.Errorf("stored notes = %+v, want one filed note with the typed text", notes)
+	}
+
+	tm.press("q") // the keyboard is back on the list
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestEscSkipsTheHandoffAfterAnEarlyStop(t *testing.T) {
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "write the PRD", `write the PRD`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
+
+	tm.press("x")
+	tm.waitFor(`Hand-off for: write the PRD`, wait)
+
+	tm.press("Escape")
+	tm.waitUntil("the prompt and the due marker to go", wait, func(s string) bool {
+		return strings.Contains(s, "Idle") && !strings.Contains(s, "Hand-off for") && !strings.Contains(s, "Hand-off due")
+	})
+	if notes := storedNotes(t, dir); len(notes) != 0 {
+		t.Errorf("stored notes = %+v after skipping, want none", notes)
+	}
+
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+// skipHandoff presses Esc on the hand-off prompt and waits for it to close. The
+// wait matters: an Esc followed at once by another key is read as Alt+key.
+func skipHandoff(tm *term) {
+	tm.t.Helper()
+	tm.press("Escape")
+	tm.waitUntil("the hand-off prompt to close", wait, func(s string) bool { return !strings.Contains(s, "Hand-off for") })
 }

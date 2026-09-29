@@ -120,6 +120,13 @@ func TestBell_AKeyPressSilencesItAndDismissesTheBannerButStillWorks(t *testing.T
 	if n != 1 {
 		t.Fatalf("rang %d, want 1", n)
 	}
+	// Resolve the hand-off elsewhere, so the prompt closes and the next key goes
+	// to the list, while the bell is still ringing.
+	if err := r.tracker.SkipHandoff(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = tickAt(t, r, m, sessionEnd+time.Second)
+	wantScreen(t, "still ringing", m, "Focus complete")
 	wantSelected(t, "before the key", m, "newer")
 
 	m = press(m, keyJ) // acknowledges, and also moves the cursor as usual
@@ -129,7 +136,7 @@ func TestBell_AKeyPressSilencesItAndDismissesTheBannerButStillWorks(t *testing.T
 	if got := selected(t, m); strings.Contains(got, "newer") {
 		t.Errorf("the cursor did not move, so the key that silenced the bell was swallowed: selected %q", got)
 	}
-	wantScreen(t, "the lasting state remains", m, "Hand-off due")
+	wantScreen(t, "the lasting state remains", m, "Break")
 
 	for _, after := range []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute} {
 		if m, n = tickAt(t, r, m, sessionEnd+after); n != 0 {

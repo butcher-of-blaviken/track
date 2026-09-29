@@ -12,6 +12,9 @@ type keyMap struct {
 
 	// Add-task prompt.
 	Submit, Cancel, ForceQuit key.Binding
+
+	// Hand-off note prompt. It shares ForceQuit with the add prompt.
+	Save, Skip key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -27,6 +30,9 @@ func newKeyMap() keyMap {
 		Submit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "add")),
 		Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 		ForceQuit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+
+		Save: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save")),
+		Skip: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "skip")),
 	}
 }
 
@@ -38,4 +44,9 @@ func (k keyMap) listHelp() []key.Binding {
 // promptHelp is what the footer shows while the add prompt is open.
 func (k keyMap) promptHelp() []key.Binding {
 	return []key.Binding{k.Submit, k.Cancel, k.ForceQuit}
+}
+
+// handoffHelp is what the footer shows while the hand-off prompt is open.
+func (k keyMap) handoffHelp() []key.Binding {
+	return []key.Binding{k.Save, k.Skip, k.ForceQuit}
 }

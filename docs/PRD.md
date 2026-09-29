@@ -46,6 +46,7 @@ See CONTEXT.md. In brief: a **Task** (Active, Done or Archived) has **Tags** and
 
 ### Hand-off notes
 - Prompted at the end of every session, completed or stopped early. One line, skippable with Esc.
+- The prompt opens by itself, naming the Task and how long ago the session ended, and waits for the add-Task prompt to close if that is open. Enter saves; an empty Enter shows a hint and stays open; Esc skips for good. Quitting leaves the hand-off pending, so the next launch asks again.
 - Notes can be added to a Task at any time. Notes can be captured with no Task (an Unfiled note) and filed later, with the timestamp of when it was written. The unfiled count is shown persistently.
 - Filing offers "create Task from this note".
 
