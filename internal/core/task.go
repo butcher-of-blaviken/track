@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // State is where a Task is in its lifecycle.
 type State int
@@ -14,22 +17,24 @@ const (
 	StateArchived
 )
 
+// TaskID identifies a Task. It is assigned by the store; the zero value means
+// the Task has not been saved yet.
+type TaskID int64
+
 // Task is a unit of work being tracked.
 type Task struct {
-	title string
-	state State
+	ID    TaskID
+	Title string // Tag markers already stripped
+	State State
+	// Tags are the Task's Tag names, in first-use casing.
+	Tags      []string
+	CreatedAt time.Time
 }
 
-// NewTask returns an Active Task with the given title.
+// NewTask returns an unsaved Active Task with the given title.
 func NewTask(title string) *Task {
-	return &Task{title: title, state: StateActive}
+	return &Task{Title: title, State: StateActive}
 }
-
-// Title returns the Task's title, with any Tag markers already stripped.
-func (t *Task) Title() string { return t.title }
-
-// State returns the Task's current state.
-func (t *Task) State() State { return t.state }
 
 // Done marks the Task as finished. Only an Active Task can be finished.
 func (t *Task) Done() error {
@@ -50,12 +55,12 @@ func (t *Task) Reopen() error {
 // and otherwise leaves it untouched and returns an error.
 func (t *Task) transition(to State, from ...State) error {
 	for _, f := range from {
-		if t.state == f {
-			t.state = to
+		if t.State == f {
+			t.State = to
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot move task from %v to %v", t.state, to)
+	return fmt.Errorf("cannot move task from %v to %v", t.State, to)
 }
 
 func (s State) String() string {
