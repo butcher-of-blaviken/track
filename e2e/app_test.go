@@ -319,3 +319,69 @@ func skipHandoff(tm *term) {
 	tm.press("Escape")
 	tm.waitUntil("the hand-off prompt to close", wait, func(s string) bool { return !strings.Contains(s, "Hand-off for") })
 }
+
+// TestFullCycleFromTheKeyboard is the whole product loop through the real
+// binary with nothing seeded: add a Task, focus, be told it is over, leave a
+// hand-off note, take the Break, start again, and find it all still there after
+// a restart. At 120x a 30m session takes ~15s and its 10m Break ~5s.
+func TestFullCycleFromTheKeyboard(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir)
+	tm.record()
+	tm.waitFor(`No tasks`, wait)
+
+	// Add a Task and start focusing on it.
+	addTaskByKeyboard(tm, "write the PRD ##docs", `write the PRD\s+#docs`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
+	if n := tm.bells(); n != 0 {
+		t.Errorf("rang %d bells while just focusing, want 0", n)
+	}
+
+	// The session ends: the banner, the bell and the hand-off prompt arrive together.
+	ended := tm.waitFor(`Hand-off for: write the PRD`, 40*time.Second)
+	if !strings.Contains(ended, "Focus complete") {
+		t.Errorf("the session-end banner should show with the prompt:\n%s", ended)
+	}
+	tm.waitForBells(1, wait)
+
+	// Leave the note; the prompt and the due marker go and the Break carries on.
+	tm.typeText("left off at the parser")
+	tm.press("Enter")
+	onBreak := tm.waitUntil("the Break with the prompt and due marker gone", wait, func(s string) bool {
+		return seconds(s, "Break") >= 0 && !strings.Contains(s, "Hand-off for") && !strings.Contains(s, "Hand-off due")
+	})
+	if strings.Contains(onBreak, "Focus complete") {
+		t.Errorf("typing should have silenced the session-end banner:\n%s", onBreak)
+	}
+
+	// The Break ends and says so.
+	over := tm.waitFor(`Break over`, 40*time.Second)
+	if !strings.Contains(over, "Idle") || strings.Contains(over, "Hand-off") {
+		t.Errorf("after the Break the app should be Idle with nothing due:\n%s", over)
+	}
+
+	// Any key silences it, and Enter starts the next session.
+	tm.press("j")
+	tm.waitUntil("the banner to go", wait, func(s string) bool { return !strings.Contains(s, "Break over") })
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
+
+	// Stop it early, skip its hand-off, and quit.
+	tm.press("x")
+	tm.waitFor(`Hand-off for: write the PRD`, wait)
+	skipHandoff(tm)
+	tm.waitFor(`Idle`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+
+	// Everything survives a restart: the Task with its tag, and just the one note.
+	again := launch(t, nil, "--data-dir", dir)
+	again.waitFor(`write the PRD\s+#docs`, wait)
+	if notes := storedNotes(t, dir); len(notes) != 1 || notes[0].Text != "left off at the parser" || notes[0].TaskID == 0 || notes[0].SessionID == 0 {
+		t.Errorf("stored notes = %+v, want the one typed note, filed and linked to its session", notes)
+	}
+}
