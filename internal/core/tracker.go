@@ -44,15 +44,22 @@ type Tracker struct {
 	store  Store
 	clock  clock.Clock
 	policy BreakPolicy
+	bell   BellPolicy
 }
 
 // NewTracker returns a Tracker, or ErrInvalidBreakPolicy if policy has a
-// non-positive field.
-func NewTracker(store Store, clock clock.Clock, policy BreakPolicy) (*Tracker, error) {
+// non-positive field. Options such as WithBellPolicy can adjust the defaults.
+func NewTracker(store Store, clock clock.Clock, policy BreakPolicy, opts ...Option) (*Tracker, error) {
 	if policy.Short <= 0 || policy.Long <= 0 || policy.LongEvery <= 0 {
 		return nil, ErrInvalidBreakPolicy
 	}
-	return &Tracker{store: store, clock: clock, policy: policy}, nil
+	t := &Tracker{store: store, clock: clock, policy: policy, bell: defaultBellPolicy}
+	for _, opt := range opts {
+		if err := opt(t); err != nil {
+			return nil, err
+		}
+	}
+	return t, nil
 }
 
 // StartSession starts a Focus session on a Task, recording the current time,

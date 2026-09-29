@@ -33,6 +33,8 @@ type Snapshot struct {
 	// hand-off is unresolved. It is independent of Phase: after a completed
 	// session the Break runs while the hand-off is still due.
 	HandoffPending bool
+	// Bell is the bell that should be ringing now, or nil.
+	Bell *Bell
 }
 
 // Snapshot derives the current Snapshot.
@@ -53,6 +55,7 @@ func (t *Tracker) Snapshot(ctx context.Context) (Snapshot, error) {
 		snap.Remaining = min(latest.PlannedEnd().Sub(now), latest.PlannedDuration)
 	default:
 		snap.HandoffPending = latest.HandoffAt == nil
+		snap.Bell = t.bell.bellFor(latest, now)
 		if remaining := latest.BreakRemaining(now); remaining > 0 {
 			snap.Phase = PhaseBreak
 			snap.Remaining = remaining
