@@ -18,6 +18,7 @@ Never commit directly to `main`.
 ## Commands
 
 - `make check`: all of the above in one go (run this before every push)
+- `make e2e`: tmux end-to-end tests of the real binary (needs tmux, ~30s; run when touching `internal/tui` or `main.go`; not part of `make check`)
 - `make fmt`, `make vet`, `make lint`, `make test`, `make build`, `make run`, `make clean`
 
 ## Architecture rules
