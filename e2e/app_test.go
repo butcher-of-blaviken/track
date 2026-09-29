@@ -76,6 +76,7 @@ func seconds(screen, label string) int {
 }
 
 func TestShowsTheFocusToBreakToIdleCycleAsTimePasses(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	seedRunningSession(t, dir)
 	// 120x: the 30m session ends after ~15s and its 10m Break after ~5s more.
@@ -175,6 +176,7 @@ func TestStartAndStopASessionFromTheKeyboard(t *testing.T) {
 }
 
 func TestAStartedSessionRunsIntoABreakWithTheHandoffDue(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir) // 30m passes in ~15s
 	tm.waitFor(`No tasks`, wait)
@@ -189,5 +191,54 @@ func TestAStartedSessionRunsIntoABreakWithTheHandoffDue(t *testing.T) {
 	tm.press("q")
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestBellsRepeatAndBannersMarkTheEndOfASessionAndItsBreak(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRunningSession(t, dir)
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir) // 30m passes in ~15s
+	tm.record()
+
+	tm.waitFor(`Focus\s+\d\d:\d\d`, wait)
+	if n := tm.bells(); n != 0 {
+		t.Errorf("rang %d bells while just focusing, want 0", n)
+	}
+
+	tm.waitFor(`Focus complete`, 40*time.Second)
+	tm.waitForBells(1, wait)
+	tm.waitForBells(2, wait) // repeats while nobody presses a key
+
+	onBreakEnd := tm.waitFor(`Break over`, 40*time.Second)
+	if strings.Contains(onBreakEnd, "Focus complete") {
+		t.Errorf("the session-end banner should give way to the Break-over one:\n%s", onBreakEnd)
+	}
+	before := tm.bells()
+	tm.waitForBells(before+1, wait) // the Break-over bell is a new event, so it rings again
+}
+
+func TestAKeyPressSilencesTheBellAndDismissesTheBanner(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRunningSession(t, dir)
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir)
+	tm.record()
+
+	tm.waitFor(`Focus complete`, 40*time.Second)
+	tm.waitForBells(1, wait)
+
+	tm.press("j") // any key
+	tm.waitUntil("the banner to go", wait, func(s string) bool { return !strings.Contains(s, "Focus complete") })
+	time.Sleep(300 * time.Millisecond) // let a refresh already in flight land
+	silenced := tm.bells()
+
+	// Well past the point where the next ring would have been due.
+	time.Sleep(3 * time.Second)
+	if n := tm.bells(); n != silenced {
+		t.Errorf("rang %d more bells after the key press, want none", n-silenced)
+	}
+	if s := tm.screen(); !strings.Contains(s, "Hand-off due") {
+		t.Errorf("the lasting state should remain after the banner goes:\n%s", s)
 	}
 }

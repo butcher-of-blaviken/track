@@ -6,6 +6,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,6 +46,7 @@ func TestMain(m *testing.M) {
 type term struct {
 	t      *testing.T
 	socket string
+	raw    string // file the pane's raw output is recorded to, once record has been called
 }
 
 // launch starts the app with the given environment and arguments.
@@ -65,6 +67,33 @@ func launch(t *testing.T, env []string, args ...string) *term {
 	// Keep the pane around after the app exits so its exit status can be read.
 	_ = tm.tmux("set-option", "-t", "app", "remain-on-exit", "on").Run()
 	return tm
+}
+
+// record starts capturing everything the app writes to the terminal, so bells
+// can be counted: tmux exposes only a bell flag, which cannot tell one ring from
+// three, and its alert-bell hook does not fire in a detached session.
+func (tm *term) record() {
+	tm.t.Helper()
+	tm.raw = filepath.Join(tm.t.TempDir(), "raw")
+	if out, err := tm.tmux("pipe-pane", "-o", "-t", "app", "cat >> "+tm.raw).CombinedOutput(); err != nil {
+		tm.t.Fatalf("pipe-pane: %v\n%s", err, out)
+	}
+}
+
+// bells is how many terminal bells (BEL characters) the app has rung since record.
+func (tm *term) bells() int {
+	tm.t.Helper()
+	data, err := os.ReadFile(tm.raw)
+	if err != nil {
+		return 0 // nothing written yet
+	}
+	return bytes.Count(data, []byte{'\a'})
+}
+
+// waitForBells waits until at least n bells have been rung.
+func (tm *term) waitForBells(n int, timeout time.Duration) {
+	tm.t.Helper()
+	tm.waitUntil(fmt.Sprintf("%d bells", n), timeout, func(string) bool { return tm.bells() >= n })
 }
 
 func (tm *term) tmux(args ...string) *exec.Cmd {
