@@ -129,11 +129,45 @@ track add "write the design doc ##docs"   # create a task; ##tags become tags
 track note "ask about the retry logic"    # save an unfiled note to the inbox
 track export                              # everything as JSON on stdout
 track export --format markdown --output track.md
+track report                              # today's work as Markdown, for a standup
+track report --standup                    # yesterday and today so far
+track report --day 2026-09-30 --format json
 track docs                                # this README, on stdout
 track version                             # also: track --version
 ```
 
 The text of `add` and `note` may be several words; quote it, and put `--` before text that starts with a dash. `export` writes every task, Focus session and note in every state. `--format` is `json` (the default) or `markdown`, and `--output FILE` writes a file in one piece instead of stdout. Exit status is 0 on success, 1 when something failed and 2 for a usage mistake.
+
+### The daily report
+
+`track report` writes what you worked on in a day, ready to paste into a standup update, a message or a pull request:
+
+```
+## Wed 30 Sep: 2h 10m focused
+
+### Finished
+- release v1.0.0 #track
+
+### Worked on
+- **write the PRD** #docs #Q1 · 1h 25m (3 sessions)
+  - left off at section 2; the retry numbers are still missing
+- **call the bank**
+  - they close at 5
+
+### Notes
+- ask whether the export needs a version field
+```
+
+Finished lists the tasks you marked done that day (a task finished before Track began recording when is not listed). Worked on lists each task with its focused time and the notes you wrote on it that day, hand-off notes included; a task you only wrote on appears without a time. Notes lists the unfiled notes you wrote that day. A section with nothing in it is left out.
+
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--day` | `today`, `yesterday` or a date written `YYYY-MM-DD`, in local time | `today` |
+| `--standup` | yesterday and today so far; cannot be combined with `--day` | off |
+| `--format`, `-f` | `markdown` (or `md`) or `json` | `markdown` |
+| `--output`, `-o` | write a file, in one piece, instead of stdout | stdout |
+
+`--format json` has a `version` and one entry per day, with the same conventions as `track export`: snake_case keys, UTC times, durations in whole seconds, and keys that are only ever added. It only reads the database, so it is safe while the app is open, and like the other subcommands it ignores the config file. Exit status is as for `export`.
 
 ### fish and `##tag`
 

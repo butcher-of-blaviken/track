@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -181,4 +182,115 @@ func writeFileAtomically(path string, write func(io.Writer) error) (err error) {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+func reportUsage(w io.Writer) {
+	_, _ = fmt.Fprint(w, `Usage: track report [--day today|yesterday|YYYY-MM-DD] [--standup] [--format markdown|json] [--output FILE]
+
+What you worked on in a day: the tasks finished, the tasks worked on with their
+focused time and the notes written on them, and the notes that belong to no task.
+Markdown (the default) is ready to paste into a standup update or a message.
+
+  --day D         the day to report: today (the default), yesterday or a date
+                  written YYYY-MM-DD. Days are local time.
+  --standup       yesterday and today so far, the usual scope of a standup
+                  update; it cannot be combined with --day
+  --format, -f    markdown (or md) or json
+  --output, -o    write FILE, in one piece, instead of stdout
+
+It only reads the database, so it is safe while the app is open. Flags go
+before the subcommand: track --data-dir DIR report
+`)
+}
+
+// parseReportDay is a --day value: today, yesterday or a YYYY-MM-DD date, which
+// must not be after today.
+func parseReportDay(text string, now time.Time) (time.Time, error) {
+	var day time.Time
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "today":
+		return now, nil
+	case "yesterday":
+		return now.AddDate(0, 0, -1), nil
+	default:
+		var err error
+		if day, err = time.ParseInLocation("2006-01-02", strings.TrimSpace(text), now.Location()); err != nil {
+			return time.Time{}, fmt.Errorf("unknown day %q (use today, yesterday or a date like 2026-09-30)", text)
+		}
+	}
+	if y, m, d := now.Date(); day.After(time.Date(y, m, d, 0, 0, 0, 0, now.Location())) {
+		return time.Time{}, fmt.Errorf("%s has not happened yet", text)
+	}
+	return day, nil
+}
+
+// runDayReport is `track report`. Like export it needs only the database and
+// only reads it.
+func runDayReport(words []string, opts options, getenv func(string) string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("track report", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
+	dayText := fs.String("day", "today", "")
+	standup := fs.Bool("standup", false, "")
+	format := fs.String("format", "markdown", "")
+	fs.StringVar(format, "f", "markdown", "")
+	output := fs.String("output", "", "")
+	fs.StringVar(output, "o", "", "")
+	usageErr := func(format string, args ...any) int {
+		_, _ = fmt.Fprintf(stderr, "track report: "+format+"\nRun 'track report -h' for usage.\n", args...)
+		return exitUsage
+	}
+	if err := fs.Parse(words); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			reportUsage(stderr)
+			return 0
+		}
+		return usageErr("%v", err)
+	}
+	var render func(io.Writer, []core.Report) error
+	switch strings.ToLower(*format) {
+	case "markdown", "md":
+		render = export.ReportMarkdown
+	case "json":
+		render = export.ReportJSON
+	default:
+		return usageErr("unknown format %q (markdown or json)", *format)
+	}
+	if fs.NArg() > 0 {
+		return usageErr("unexpected argument %q", fs.Arg(0))
+	}
+	dayGiven := false
+	fs.Visit(func(f *flag.Flag) { dayGiven = dayGiven || f.Name == "day" })
+	if *standup && dayGiven {
+		return usageErr("--standup already means yesterday and today; drop --day")
+	}
+
+	a, err := openApp(opts.dataDir, getenv, config.Defaults())
+	if err != nil {
+		return report(err, stderr)
+	}
+	defer func() { _ = a.close() }()
+	now := a.tracker.Now()
+	var days []time.Time
+	if *standup {
+		days = []time.Time{now.AddDate(0, 0, -1), now}
+	} else {
+		day, err := parseReportDay(*dayText, now)
+		if err != nil {
+			return usageErr("%v", err)
+		}
+		days = []time.Time{day}
+	}
+	reports := make([]core.Report, 0, len(days))
+	for _, day := range days {
+		r, err := a.tracker.Day(context.Background(), day)
+		if err != nil {
+			return report(err, stderr)
+		}
+		reports = append(reports, r)
+	}
+	if *output == "" {
+		return report(render(stdout, reports), stderr)
+	}
+	return report(writeFileAtomically(*output, func(w io.Writer) error { return render(w, reports) }), stderr)
 }
