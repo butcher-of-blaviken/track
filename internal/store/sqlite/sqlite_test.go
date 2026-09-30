@@ -284,3 +284,57 @@ func TestSnapshot_SeesASessionStartedThroughAnotherHandle(t *testing.T) {
 		t.Errorf("snapshot through the other handle = %+v, want Focus with 20m remaining", snap)
 	}
 }
+
+// The running app reads on every tick while `track add` and `track note` write
+// from other processes. A read must never fail or see a half-written state.
+func TestTwoHandles_ReadsDuringWritesNeverFailAndNeverGoBackwards(t *testing.T) {
+	path := dbPath(t)
+	reader, writer := mustOpen(t, path), mustOpen(t, path)
+	const writes = 60
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	writeErr := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < writes; i++ {
+			err := writer.Update(ctx, func(tx core.Tx) error {
+				if _, err := tx.CreateTask(core.Task{Title: fmt.Sprintf("task %d", i), State: core.StateActive, CreatedAt: time.Now()}); err != nil {
+					return err
+				}
+				_, err := tx.CreateNote(core.Note{Text: fmt.Sprintf("note %d", i), CreatedAt: time.Now()})
+				return err
+			})
+			if err != nil {
+				writeErr <- err
+				return
+			}
+		}
+	}()
+
+	tasks, notes := 0, 0
+	for tasks < writes || notes < writes {
+		ts, err := reader.Tasks(ctx)
+		if err != nil {
+			t.Fatalf("Tasks during writes: %v", err)
+		}
+		n, err := reader.UnfiledNoteCount(ctx)
+		if err != nil {
+			t.Fatalf("UnfiledNoteCount during writes: %v", err)
+		}
+		if _, err := reader.LatestSession(ctx); err != nil && !errors.Is(err, core.ErrNotFound) {
+			t.Fatalf("LatestSession during writes: %v", err)
+		}
+		if len(ts) < tasks || n < notes {
+			t.Fatalf("a read went backwards: tasks %d -> %d, notes %d -> %d", tasks, len(ts), notes, n)
+		}
+		tasks, notes = len(ts), n
+		select {
+		case err := <-writeErr:
+			t.Fatalf("write failed: %v", err)
+		default:
+		}
+	}
+	wg.Wait()
+}
