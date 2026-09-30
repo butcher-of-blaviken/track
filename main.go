@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -43,18 +44,34 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	case err != nil:
 		_, _ = fmt.Fprintf(stderr, "track: %v\nRun 'track --help' for usage.\n", err)
 		return exitUsage
+	case opts.version:
+		return printVersion(nil, stdout, stderr)
 	case len(opts.rest) == 0:
 		return report(runTUI(opts, getenv), stderr)
+	}
+	if opts.rest[0] == "version" {
+		return printVersion(opts.rest[1:], stdout, stderr)
 	}
 	if opts.rest[0] == "export" {
 		return runExport(opts.rest[1:], opts, getenv, stdout, stderr)
 	}
 	cmd, ok := findCommand(opts.rest[0])
 	if !ok {
-		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export)\nRun 'track --help' for usage.\n", opts.rest[0])
+		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export, version)\nRun 'track --help' for usage.\n", opts.rest[0])
 		return exitUsage
 	}
 	return runCommand(cmd, opts.rest[1:], opts, getenv, stdout, stderr)
+}
+
+// printVersion is `track --version` and `track version`.
+func printVersion(extra []string, stdout, stderr io.Writer) int {
+	if len(extra) > 0 {
+		_, _ = fmt.Fprintf(stderr, "track version: unexpected argument %q\nRun 'track --help' for usage.\n", extra[0])
+		return exitUsage
+	}
+	info, ok := debug.ReadBuildInfo()
+	_, _ = fmt.Fprintln(stdout, versionString(info, ok))
+	return 0
 }
 
 // report prints an error as the command line's failure and returns its exit code.
@@ -73,6 +90,8 @@ type options struct {
 	overrides  config.Overrides
 	// rest is what follows the flags: a subcommand and its words, or nothing.
 	rest []string
+	// version asks for the version instead of running anything.
+	version bool
 }
 
 // parseArgs reads the flags, writing usage and errors to stderr. It returns
@@ -88,6 +107,7 @@ func parseArgs(args []string, stderr io.Writer) (options, error) {
 
 	fs.StringVar(&opts.dataDir, "data-dir", "", "")
 	fs.StringVar(&opts.configFile, "config", "", "")
+	fs.BoolVar(&opts.version, "version", false, "")
 	duration := func(name string, into **time.Duration) {
 		fs.Func(name, "", func(text string) error {
 			d, err := config.ParseDuration(text)
@@ -126,6 +146,7 @@ func usage(w io.Writer) {
   track add <text>          create a Task; ##tag words become Tags
   track note <text>         save a note to the inbox, to file onto a Task later
   track export              write everything as JSON or Markdown (-f, -o FILE)
+  track version             print the version (also: track --version)
 
 Flags (they go before the subcommand: track --data-dir DIR add <text>):
   --focus-duration d       length of a Focus session (default %s)
