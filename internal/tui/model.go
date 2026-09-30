@@ -67,6 +67,22 @@ type addedMsg struct {
 	err       error
 }
 
+// stateAction is a change to a Task's state.
+type stateAction int
+
+const (
+	actionDone stateAction = iota
+	actionArchive
+	actionReopen
+)
+
+// stateMsg carries the result of changing a Task's state.
+type stateMsg struct {
+	action stateAction
+	task   core.Task
+	err    error
+}
+
 // Option customises a Model.
 type Option func(*Model)
 
@@ -367,6 +383,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.fetch()
+	case stateMsg:
+		if msg.err != nil {
+			m.notice = describeState(msg.err)
+			return m, nil
+		}
+		m.notice = m.stateNotice(msg)
+		return m, m.fetch()
 	case handoffMsg:
 		// Nothing pending means someone else resolved it: the prompt is done either way.
 		if msg.err != nil && !errors.Is(msg.err, core.ErrNoHandoffPending) {
@@ -470,6 +493,12 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startTask(rows[min(m.cursor, len(rows)-1)].Task.ID)
+	case key.Matches(press, m.keys.Done):
+		return m.changeState(actionDone)
+	case key.Matches(press, m.keys.Archive):
+		return m.changeState(actionArchive)
+	case key.Matches(press, m.keys.Reopen):
+		return m.changeState(actionReopen)
 	case key.Matches(press, m.keys.All):
 		m.showAll = !m.showAll
 		return m, m.fetch()
@@ -494,6 +523,74 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.input.Focus()
 	}
 	return m, nil
+}
+
+// changeState applies action to the Task under the cursor, unless its state
+// says it cannot apply, in which case it says why.
+func (m Model) changeState(action stateAction) (tea.Model, tea.Cmd) {
+	rows := m.rows()
+	if len(rows) == 0 {
+		return m, nil
+	}
+	task := rows[min(m.cursor, len(rows)-1)].Task
+	switch {
+	case action == actionDone && task.State == core.StateDone:
+		m.notice = "Already done."
+	case action == actionDone && task.State == core.StateArchived:
+		m.notice = "Reopen it first (u)."
+	case action == actionArchive && task.State == core.StateArchived:
+		m.notice = "Already archived."
+	case action == actionReopen && task.State == core.StateActive:
+		m.notice = "Already active."
+	default:
+		return m, m.setState(task.ID, action)
+	}
+	return m, nil
+}
+
+// setState changes a Task's state off the UI goroutine.
+func (m Model) setState(id core.TaskID, action stateAction) tea.Cmd {
+	tracker := m.tracker
+	return func() tea.Msg {
+		ctx := context.Background()
+		var task core.Task
+		var err error
+		switch action {
+		case actionDone:
+			task, err = tracker.MarkDone(ctx, id)
+		case actionArchive:
+			task, err = tracker.ArchiveTask(ctx, id)
+		case actionReopen:
+			task, err = tracker.ReopenTask(ctx, id)
+		}
+		return stateMsg{action: action, task: task, err: err}
+	}
+}
+
+// stateNotice words a state change, and how to undo it.
+func (m Model) stateNotice(msg stateMsg) string {
+	undo := "u reopens"
+	if !m.showAll {
+		undo = "tab shows it, u reopens"
+	}
+	switch msg.action {
+	case actionDone:
+		return "Marked done: " + msg.task.Title + " (" + undo + ")"
+	case actionArchive:
+		return "Archived: " + msg.task.Title + " (" + undo + ")"
+	}
+	return "Reopened: " + msg.task.Title
+}
+
+// describeState words the reasons a state change can be refused.
+func describeState(err error) string {
+	switch {
+	case errors.Is(err, core.ErrSessionRunning):
+		return "Stop the running session first (x)."
+	case errors.Is(err, core.ErrInvalidTransition):
+		return "That change doesn't apply to this task."
+	}
+	return err.Error()
 }
 
 // startTask starts a session on a Task, asking first if a Break is running.

@@ -9,6 +9,8 @@ type keyMap struct {
 	Up, Down, Start, Stop, Add, Quit key.Binding
 	// Find opens the picker as a filter, Pick opens it to choose a Task to start.
 	Find, Pick key.Binding
+	// Done, Archive and Reopen change the state of the Task under the cursor.
+	Done, Archive, Reopen key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -32,16 +34,19 @@ type keyMap struct {
 
 func newKeyMap() keyMap {
 	return keyMap{
-		Up:    key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
-		Down:  key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j", "down")),
-		Move:  key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "move")),
-		Start: key.NewBinding(key.WithKeys("s", "enter"), key.WithHelp("enter", "start")),
-		Stop:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
-		Add:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-		Quit:  key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-		Find:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
-		All:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "scope")),
-		Pick:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
+		Up:      key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
+		Down:    key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j", "down")),
+		Move:    key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "move")),
+		Start:   key.NewBinding(key.WithKeys("s", "enter"), key.WithHelp("enter", "start")),
+		Stop:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
+		Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Done:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "done")),
+		Archive: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "archive")),
+		Reopen:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "reopen")),
+		Find:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
+		All:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "scope")),
+		Pick:    key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
 
 		Submit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "add")),
 		Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -62,7 +67,7 @@ func newKeyMap() keyMap {
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.All, k.Move, k.Quit}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Done, k.Find, k.All, k.Move, k.Quit}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.

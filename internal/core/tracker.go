@@ -160,6 +160,49 @@ func (t *Tracker) AddTask(ctx context.Context, text string) (Task, error) {
 	return task, err
 }
 
+// MarkDone finishes an Active Task. It is refused with ErrSessionRunning while
+// the Task has a running session, and with ErrInvalidTransition unless the Task
+// is Active.
+func (t *Tracker) MarkDone(ctx context.Context, id TaskID) (Task, error) {
+	return t.moveTask(ctx, id, true, (*Task).Done)
+}
+
+// ArchiveTask abandons an Active or Done Task, with the same refusals as MarkDone.
+func (t *Tracker) ArchiveTask(ctx context.Context, id TaskID) (Task, error) {
+	return t.moveTask(ctx, id, true, (*Task).Archive)
+}
+
+// ReopenTask makes a Done or Archived Task Active again.
+func (t *Tracker) ReopenTask(ctx context.Context, id TaskID) (Task, error) {
+	return t.moveTask(ctx, id, false, (*Task).Reopen)
+}
+
+// moveTask applies a state change to a Task and saves it. With unlessRunning it
+// refuses while the Task has a running session, whose timer would otherwise keep
+// counting on a finished Task. Only the state changes; history is kept.
+func (t *Tracker) moveTask(ctx context.Context, id TaskID, unlessRunning bool, move func(*Task) error) (Task, error) {
+	var task Task
+	err := t.store.Update(ctx, func(tx Tx) error {
+		var err error
+		if task, err = tx.Task(id); err != nil {
+			return err
+		}
+		if unlessRunning {
+			switch latest, err := tx.LatestSession(); {
+			case err != nil && !errors.Is(err, ErrNotFound):
+				return err
+			case err == nil && latest.TaskID == id && latest.Outcome(t.clock.Now()) == OutcomeRunning:
+				return ErrSessionRunning
+			}
+		}
+		if err := move(&task); err != nil {
+			return err
+		}
+		return tx.SaveTask(task)
+	})
+	return task, err
+}
+
 // Tasks returns the Tasks in any of the given states, newest first. With no
 // states it returns every Task.
 func (t *Tracker) Tasks(ctx context.Context, states ...State) ([]Task, error) {
