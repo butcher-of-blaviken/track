@@ -39,6 +39,8 @@ type refreshMsg struct {
 	tasks []core.Task
 	// all is whether tasks holds every state or only the Active Tasks.
 	all bool
+	// detail is set only while the detail view is open.
+	detail *core.TaskDetail
 	// unfiledNotes is set only while the inbox or the file picker is open.
 	unfiledNotes []core.Note
 	// notes is set only when the search needs them.
@@ -164,6 +166,13 @@ type Model struct {
 	inboxTop    int
 	fileNote    core.Note
 
+	// detailFor is the Task whose detail is open, zero when none is, and detail
+	// what was last read for it. The note prompt opened from there returns to it.
+	detailFor    core.TaskID
+	detail       core.TaskDetail
+	detailLoaded bool
+	detailTop    int
+
 	keys keyMap
 	help help.Model
 
@@ -182,6 +191,7 @@ const (
 	modePicker
 	modeInbox
 	modeNote
+	modeDetail
 )
 
 // pickPurpose is what the open picker is for.
@@ -279,7 +289,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote, all, wantNotes, wantInbox := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen()
+	tracker, wantNote, all, wantNotes, wantInbox, detailFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailFor
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -303,6 +313,13 @@ func (m Model) fetch() tea.Cmd {
 			if msg.unfiledNotes, msg.err = tracker.UnfiledNotes(ctx); msg.err != nil {
 				return msg
 			}
+		}
+		if detailFor != 0 {
+			d, err := tracker.TaskDetail(ctx, detailFor)
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			msg.detail = &d
 		}
 		// Newest first within each state, Active before Done before Archived.
 		slices.SortStableFunc(msg.tasks, func(a, b core.Task) int { return int(a.State) - int(b.State) })
@@ -389,6 +406,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
 			m.notes = nil
+			if msg.detail != nil && msg.detail.Task.ID == m.detailFor {
+				m.detail, m.detailLoaded = *msg.detail, true
+			}
 			m.syncInbox(msg.unfiledNotes)
 			if m.searching() {
 				m.notes = msg.notes
@@ -423,7 +443,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.closePrompt()
-		m.notice = "Saved to the inbox."
+		if m.detailFor != 0 {
+			m.mode = modeDetail
+		} else {
+			m.notice = "Saved to the inbox."
+		}
 		return m, m.fetch()
 	case stateMsg:
 		if msg.err != nil {
@@ -475,6 +499,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateInbox(msg)
 		case modeNote:
 			return m.updateNote(msg)
+		case modeDetail:
+			return m.updateDetail(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -547,6 +573,13 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.changeState(actionReopen)
 	case key.Matches(press, m.keys.All):
 		m.showAll = !m.showAll
+		return m, m.fetch()
+	case key.Matches(press, m.keys.Detail):
+		rows := m.rows()
+		if len(rows) == 0 {
+			return m, nil
+		}
+		m.mode, m.detailFor, m.detailLoaded, m.detailTop = modeDetail, rows[min(m.cursor, len(rows)-1)].Task.ID, false, 0
 		return m, m.fetch()
 	case key.Matches(press, m.keys.Inbox):
 		if m.unfiled == 0 {
@@ -1045,11 +1078,19 @@ func (m Model) updateNote(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(press, m.keys.Cancel):
 		m.closePrompt()
+		if m.detailFor != 0 {
+			m.mode = modeDetail
+		}
 		return m, nil
 	case key.Matches(press, m.keys.Submit):
-		tracker, text := m.tracker, m.input.Value()
+		tracker, text, task := m.tracker, m.input.Value(), m.detailFor
 		return m, func() tea.Msg {
-			_, err := tracker.AddUnfiledNote(context.Background(), text)
+			var err error
+			if task != 0 {
+				_, err = tracker.AddNote(context.Background(), task, text)
+			} else {
+				_, err = tracker.AddUnfiledNote(context.Background(), text)
+			}
 			return noteMsg{err: err}
 		}
 	}
@@ -1074,4 +1115,45 @@ func describeInbox(err error) string {
 		return "That note or task no longer exists."
 	}
 	return describe(err)
+}
+
+// inDetail is whether the detail view is showing, including while its note
+// prompt is open over it.
+func (m Model) inDetail() bool {
+	return m.detailFor != 0 && (m.mode == modeDetail || m.mode == modeNote)
+}
+
+func (m Model) updateDetail(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.notice = ""
+	switch {
+	case key.Matches(press, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.DetailBack):
+		m.mode, m.detailFor = modeList, 0
+	case key.Matches(press, m.keys.Down):
+		m.detailTop = min(m.detailTop+1, m.detailMaxTop())
+	case key.Matches(press, m.keys.Up):
+		m.detailTop = max(m.detailTop-1, 0)
+	case key.Matches(press, m.keys.Note):
+		m.mode, m.promptErr = modeNote, ""
+		m.input.Reset()
+		m.input.Placeholder = notePlaceholder
+		m.sizeInput()
+		return m, m.input.Focus()
+	case key.Matches(press, m.keys.Start):
+		id := m.detailFor
+		m.mode, m.detailFor = modeList, 0
+		return m.startTask(id)
+	}
+	return m, nil
+}
+
+// detailHeadLines is the lines above the note log: the Task, its focused time,
+// a blank and the heading.
+const detailHeadLines = 4
+
+// detailMaxTop is how far the note log can scroll.
+func (m Model) detailMaxTop() int {
+	avail := max(m.listRows()-detailHeadLines, 1)
+	return max(len(m.detail.Notes)-avail, 0)
 }

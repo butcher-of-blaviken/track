@@ -53,7 +53,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -115,6 +115,13 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
+	if m.mode == modeDetail {
+		lines := []string{""}
+		if m.notice != "" {
+			lines = append(lines, "  "+m.notice)
+		}
+		return append(lines, "  "+m.helpLine(m.keys.detailHelp()))
+	}
 	if m.mode == modeInbox {
 		lines := []string{""}
 		if m.notice != "" {
@@ -218,6 +225,9 @@ func (m Model) listRows() int {
 		if m.mode == modeInbox {
 			return max(len(m.inbox), 1)
 		}
+		if m.inDetail() {
+			return detailHeadLines + max(len(m.detail.Notes), 1)
+		}
 		lines := 0
 		for _, h := range rowHeights(m.rows()) {
 			lines += h
@@ -233,6 +243,9 @@ func (m Model) listLines(rows int) []string {
 	}
 	if m.mode == modeInbox {
 		return m.inboxLines(rows)
+	}
+	if m.inDetail() {
+		return m.detailLines(rows)
 	}
 	matches := m.rows()
 	if len(matches) == 0 {
@@ -258,6 +271,54 @@ func (m Model) listLines(rows int) []string {
 		}
 	}
 	return lines
+}
+
+// detailLines is the Task detail: the Task, its focused time and its note log,
+// newest first, scrolled by detailTop.
+func (m Model) detailLines(rows int) []string {
+	if !m.detailLoaded {
+		return []string{"  Loading…"}
+	}
+	d := m.detail
+	lines := []string{
+		"  " + matchText(core.TaskMatch{Task: d.Task}),
+		"  Focused: " + focusText(d.Focused, d.Sessions),
+		"",
+		"  Notes",
+	}
+	if len(d.Notes) == 0 {
+		return append(lines, "  No notes yet. Press n to add one.")
+	}
+	avail := max(rows-detailHeadLines, 1)
+	top := min(m.detailTop, max(len(d.Notes)-avail, 0))
+	for i := top; i < len(d.Notes) && i < top+avail; i++ {
+		n := d.Notes[len(d.Notes)-1-i]
+		lines = append(lines, "  "+n.CreatedAt.Local().Format("2006-01-02 15:04")+"  "+n.Text)
+	}
+	return lines
+}
+
+// focusText words a Task's total focused time: whole minutes from one minute up,
+// seconds below that.
+func focusText(d time.Duration, sessions int) string {
+	if sessions == 0 {
+		return "none yet"
+	}
+	var amount string
+	switch mins := int(d.Round(time.Minute) / time.Minute); {
+	case d < time.Minute:
+		amount = fmt.Sprintf("%ds", int(d/time.Second))
+	case mins < 60:
+		amount = fmt.Sprintf("%dm", mins)
+	case mins%60 == 0:
+		amount = fmt.Sprintf("%dh", mins/60)
+	default:
+		amount = fmt.Sprintf("%dh %dm", mins/60, mins%60)
+	}
+	if sessions == 1 {
+		return amount + " over 1 session"
+	}
+	return fmt.Sprintf("%s over %d sessions", amount, sessions)
 }
 
 // inboxLines is the Unfiled notes, oldest first, one per line.

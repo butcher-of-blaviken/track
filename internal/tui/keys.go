@@ -17,6 +17,9 @@ type keyMap struct {
 	// Inbox view. It shares Up, Down and Quit with the list; Back also closes it
 	// with Inbox.
 	File, NewTask, Back key.Binding
+
+	// Task detail view.
+	Detail, DetailBack, Scroll key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -40,24 +43,27 @@ type keyMap struct {
 
 func newKeyMap() keyMap {
 	return keyMap{
-		Up:      key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
-		Down:    key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j", "down")),
-		Move:    key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "move")),
-		Start:   key.NewBinding(key.WithKeys("s", "enter"), key.WithHelp("enter", "start")),
-		Stop:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
-		Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-		Inbox:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inbox")),
-		Note:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "note")),
-		File:    key.NewBinding(key.WithKeys("f", "enter"), key.WithHelp("enter", "file")),
-		NewTask: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "new task")),
-		Back:    key.NewBinding(key.WithKeys("esc", "i"), key.WithHelp("esc", "back")),
-		Done:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "done")),
-		Archive: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "archive")),
-		Reopen:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "reopen")),
-		Find:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
-		All:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "scope")),
-		Pick:    key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
+		Up:         key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
+		Down:       key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j", "down")),
+		Move:       key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "move")),
+		Start:      key.NewBinding(key.WithKeys("s", "enter"), key.WithHelp("enter", "start")),
+		Stop:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
+		Add:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Detail:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "open")),
+		DetailBack: key.NewBinding(key.WithKeys("esc", "h"), key.WithHelp("esc", "back")),
+		Scroll:     key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "scroll")),
+		Inbox:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inbox")),
+		Note:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "note")),
+		File:       key.NewBinding(key.WithKeys("f", "enter"), key.WithHelp("enter", "file")),
+		NewTask:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "new task")),
+		Back:       key.NewBinding(key.WithKeys("esc", "i"), key.WithHelp("esc", "back")),
+		Done:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "done")),
+		Archive:    key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "archive")),
+		Reopen:     key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "reopen")),
+		Find:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
+		All:        key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "scope")),
+		Pick:       key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
 
 		Submit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "add")),
 		Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -78,7 +84,7 @@ func newKeyMap() keyMap {
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Find, k.All, k.Move, k.Quit}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Detail, k.Find, k.All, k.Move, k.Quit}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -117,4 +123,9 @@ func (k keyMap) inboxHelp() []key.Binding {
 func (k keyMap) noteHelp() []key.Binding {
 	save := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save"))
 	return []key.Binding{save, k.Cancel, k.ForceQuit}
+}
+
+// detailHelp is what the footer shows in the Task detail view.
+func (k keyMap) detailHelp() []key.Binding {
+	return []key.Binding{k.Start, k.Note, k.Scroll, k.DetailBack, k.Quit}
 }

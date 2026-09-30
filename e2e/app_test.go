@@ -764,3 +764,63 @@ func TestCaptureNotesAndFileThemFromTheInbox(t *testing.T) {
 		t.Errorf("second note filed on %q (found %v), want \"existing work\"", title, found)
 	}
 }
+
+// seedTaskWithHistory creates an Active Task with one completed 30-minute
+// session two hours ago and a note, as another process sharing the database would.
+func seedTaskWithHistory(t *testing.T, dir, title, note string) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	started := time.Now().Add(-2 * time.Hour)
+	if err := store.Update(context.Background(), func(tx core.Tx) error {
+		id, err := tx.CreateTask(core.Task{Title: title, State: core.StateActive, CreatedAt: started})
+		if err != nil {
+			return err
+		}
+		if _, err = tx.CreateSession(core.FocusSession{TaskID: id, StartedAt: started, PlannedDuration: 30 * time.Minute, BreakDuration: 10 * time.Minute}); err != nil {
+			return err
+		}
+		_, err = tx.CreateNote(core.Note{TaskID: id, Text: note, CreatedAt: started.Add(30 * time.Minute)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheDetailViewShowsFocusedTimeAndTheLogAndTakesANote(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTaskWithHistory(t, dir, "write the PRD", "left off at the parser")
+	tm := launch(t, nil, "--data-dir", dir)
+	// The session ended long ago with its hand-off pending, then the resume prompt follows.
+	tm.waitFor(`Hand-off for: write the PRD`, wait)
+	skipHandoff(tm)
+	tm.waitFor(`Resume "write the PRD"`, wait)
+	tm.press("n")
+	tm.waitUntil("the resume prompt to close", wait, func(s string) bool { return !strings.Contains(s, "Resume") })
+
+	tm.press("l")
+	tm.waitFor(`Focused: 30m over 1 session`, wait)
+	tm.waitFor(`\d{4}-\d\d-\d\d \d\d:\d\d  left off at the parser`, wait)
+
+	tm.press("n")
+	tm.waitFor(`Note:`, wait)
+	tm.typeText("added from the detail")
+	tm.press("Enter")
+	tm.waitUntil("the new note above the old one", wait, func(s string) bool {
+		a, b := strings.Index(s, "added from the detail"), strings.Index(s, "left off at the parser")
+		return a >= 0 && b >= 0 && a < b
+	})
+	tm.press("Escape")
+	tm.waitUntil("the list", wait, func(s string) bool { return !strings.Contains(s, "Focused:") })
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+	if found, title := storedNoteState(t, dir, "added from the detail"); !found || title != "write the PRD" {
+		t.Errorf("note filed on %q (found %v), want \"write the PRD\"", title, found)
+	}
+}
