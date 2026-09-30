@@ -9,6 +9,8 @@ type keyMap struct {
 	Up, Down, Start, Stop, Add, Quit key.Binding
 	// Find opens the picker as a filter, Pick opens it to choose a Task to start.
 	Find, Pick key.Binding
+	// All toggles between Active Tasks and every state, in the list and the picker.
+	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
 	Move key.Binding
 
@@ -38,6 +40,7 @@ func newKeyMap() keyMap {
 		Add:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:  key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Find:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
+		All:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "scope")),
 		Pick:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
 
 		Submit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "add")),
@@ -59,7 +62,7 @@ func newKeyMap() keyMap {
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.Move, k.Quit}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.All, k.Move, k.Quit}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -86,5 +89,5 @@ func (k keyMap) resumeHelp() []key.Binding {
 // Enter does.
 func (k keyMap) pickerHelp(accept string) []key.Binding {
 	enter := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", accept))
-	return []key.Binding{enter, k.PickMove, k.Cancel, k.ForceQuit}
+	return []key.Binding{enter, k.PickMove, k.All, k.Cancel, k.ForceQuit}
 }

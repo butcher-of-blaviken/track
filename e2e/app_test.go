@@ -518,3 +518,69 @@ func TestSlashFiltersTheListUntilEscClearsIt(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+// seedTask creates a Task in the given state, as another process sharing the
+// database would.
+func seedTask(t *testing.T, dir, title string, state core.State) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	if err := store.Update(context.Background(), func(tx core.Tx) error {
+		_, err := tx.CreateTask(core.Task{Title: title, State: state, CreatedAt: time.Now()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSearchFindsATaskByItsTagAndHashRestrictsToTags(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "write the PRD ##docs", `write the PRD\s+#docs`)
+	addTaskByKeyboard(tm, "docs cleanup", `docs cleanup`)
+	addTaskByKeyboard(tm, "fix the build", `fix the build`)
+
+	tm.press("/")
+	tm.waitFor(`Find:`, wait)
+	tm.typeText("#docs")
+	tm.waitUntil("only the tagged Task", wait, func(s string) bool {
+		return strings.Contains(s, "write the PRD") && !strings.Contains(s, "docs cleanup") && !strings.Contains(s, "fix the build")
+	})
+	tm.press("Escape")
+	tm.waitUntil("the picker to close", wait, func(s string) bool { return !strings.Contains(s, "Find:") })
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestTabTogglesDoneAndArchivedTasksIntoTheList(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTask(t, dir, "shipped it", core.StateDone)
+	seedTask(t, dir, "gave up", core.StateArchived)
+	seedTask(t, dir, "in progress", core.StateActive)
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitUntil("only the Active Task", wait, func(s string) bool {
+		return strings.Contains(s, "in progress") && !strings.Contains(s, "shipped it") && !strings.Contains(s, "gave up")
+	})
+
+	tm.press("Tab")
+	tm.waitFor(`Showing: all tasks`, wait)
+	tm.waitFor(`shipped it \(done\)`, wait)
+	tm.waitFor(`gave up \(archived\)`, wait)
+
+	tm.press("Tab")
+	tm.waitUntil("Active only again", wait, func(s string) bool {
+		return !strings.Contains(s, "Showing:") && !strings.Contains(s, "shipped it")
+	})
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

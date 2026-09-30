@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,8 @@ type TickMsg time.Time
 type refreshMsg struct {
 	snap  core.Snapshot
 	tasks []core.Task
+	// all is whether tasks holds every state or only the Active Tasks.
+	all bool
 	// sessionTask is the Task of the latest session, running or ended.
 	sessionTask *core.Task
 	unfiled     int
@@ -123,7 +126,9 @@ type Model struct {
 	// filter is the applied list filter, empty for none. While the picker is
 	// open its own text is the query. pick is the open picker's purpose, and
 	// pickFrom the Task the cursor was on when it opened, for cancelling.
-	filter   string
+	filter string
+	// showAll includes Done and Archived Tasks in the list and the picker.
+	showAll  bool
 	pick     pickPurpose
 	pickFrom core.TaskID
 
@@ -235,17 +240,23 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote := m.tracker, m.resume != resumeOver
+	tracker, wantNote, all := m.tracker, m.resume != resumeOver, m.showAll
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
 		if err != nil {
 			return refreshMsg{err: err}
 		}
-		msg := refreshMsg{snap: snap}
-		if msg.tasks, msg.err = tracker.Tasks(ctx, core.StateActive); msg.err != nil {
+		msg := refreshMsg{snap: snap, all: all}
+		states := []core.State{core.StateActive}
+		if all {
+			states = nil
+		}
+		if msg.tasks, msg.err = tracker.Tasks(ctx, states...); msg.err != nil {
 			return msg
 		}
+		// Newest first within each state, Active before Done before Archived.
+		slices.SortStableFunc(msg.tasks, func(a, b core.Task) int { return int(a.State) - int(b.State) })
 		if msg.unfiled, msg.err = tracker.UnfiledNoteCount(ctx); msg.err != nil {
 			return msg
 		}
@@ -327,7 +338,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// tries again.
 		m.err = msg.err
 		if msg.err == nil {
-			m.snap, m.tasks, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.tasks, msg.sessionTask, msg.unfiled, true
+			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
+			if msg.all == m.showAll { // one fetched before a toggle carries the old scope
+				m.tasks = msg.tasks
+			}
 			m.reselect()
 			cmd := tea.Batch(m.ring(), m.syncHandoff())
 			m.syncResume(msg.lastNote)
@@ -443,6 +457,9 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startTask(rows[min(m.cursor, len(rows)-1)].Task.ID)
+	case key.Matches(press, m.keys.All):
+		m.showAll = !m.showAll
+		return m, m.fetch()
 	case key.Matches(press, m.keys.Find):
 		return m.openPicker(pickFilter)
 	case key.Matches(press, m.keys.Pick):
@@ -468,6 +485,12 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // startTask starts a session on a Task, asking first if a Break is running.
 func (m Model) startTask(id core.TaskID) (tea.Model, tea.Cmd) {
+	for _, task := range m.tasks {
+		if task.ID == id && task.State != core.StateActive {
+			m.notice = m.describeSession(core.ErrTaskNotActive)
+			return m, nil
+		}
+	}
 	if m.snap.Phase == core.PhaseBreak {
 		m.mode, m.breakStart = modeConfirmBreak, id
 		return m, nil
@@ -513,6 +536,9 @@ func (m Model) updatePicker(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.closePrompt()
 		m.reselect()
 		return m, nil
+	case key.Matches(press, m.keys.All):
+		m.showAll = !m.showAll
+		return m, m.fetch()
 	case key.Matches(press, m.keys.PickDown):
 		m.moveCursor(1)
 		return m, nil

@@ -84,6 +84,9 @@ func (m Model) header() []string {
 		if m.unfiled > 0 {
 			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d", m.unfiled))
 		}
+		if m.showAll {
+			lines = append(lines, "  Showing: all tasks")
+		}
 		if m.filter != "" && m.mode != modePicker {
 			lines = append(lines, "  Filter: "+m.filter+"  (esc clears)")
 		}
@@ -242,13 +245,31 @@ func (m Model) pickAccept() string {
 
 var matchStyle = lipgloss.NewStyle().Bold(true).Underline(true)
 
-// matchText is taskText with the characters the search matched highlighted.
+// matchText is a Task's row text: its title with the characters the search
+// matched highlighted, a marker if it is not Active, and its Tags as #tag chips.
 func matchText(tm core.TaskMatch) string {
-	text := taskText(tm.Task)
-	if len(tm.Runes) == 0 {
-		return text
+	t := tm.Task
+	line := t.Title
+	if len(tm.Runes) > 0 {
+		line = highlight(t.Title, tm.Runes)
 	}
-	return highlight(tm.Task.Title, tm.Runes) + strings.TrimPrefix(text, tm.Task.Title)
+	switch t.State {
+	case core.StateDone:
+		line += " (done)"
+	case core.StateArchived:
+		line += " (archived)"
+	}
+	if len(t.Tags) == 0 {
+		return line
+	}
+	chips := make([]string, len(t.Tags))
+	for i, tag := range t.Tags {
+		if runes := tm.TagRunes[i]; len(runes) > 0 {
+			tag = highlight(tag, runes)
+		}
+		chips[i] = "#" + tag
+	}
+	return line + "  " + strings.Join(chips, " ")
 }
 
 // highlight styles the runes of title at the given rune offsets.
@@ -274,18 +295,6 @@ func highlight(title string, offsets []int) string {
 	}
 	flush()
 	return out.String()
-}
-
-// taskText is a Task's title followed by its Tags as #tag chips.
-func taskText(t core.Task) string {
-	if len(t.Tags) == 0 {
-		return t.Title
-	}
-	chips := make([]string, len(t.Tags))
-	for i, tag := range t.Tags {
-		chips[i] = "#" + tag
-	}
-	return t.Title + "  " + strings.Join(chips, " ")
 }
 
 // phaseLine is the panel's state line: the phase, its countdown, and for Focus
