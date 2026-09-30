@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -50,9 +51,12 @@ type term struct {
 }
 
 // launch starts the app with the given environment and arguments.
+// sockets numbers the tmux servers; a clock is too coarse to tell parallel tests apart.
+var sockets atomic.Int64
+
 func launch(t *testing.T, env []string, args ...string) *term {
 	t.Helper()
-	tm := &term{t: t, socket: fmt.Sprintf("track-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())}
+	tm := &term{t: t, socket: fmt.Sprintf("track-e2e-%d-%d", os.Getpid(), sockets.Add(1))}
 	t.Cleanup(func() { _ = tm.tmux("kill-server").Run() })
 
 	cmd := []string{"new-session", "-d", "-s", "app", "-x", "80", "-y", "24"}
