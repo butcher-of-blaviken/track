@@ -1164,3 +1164,13 @@ func TestARunningAppPicksUpWhatTheCommandLineWritesOnItsNextTick(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+func TestVersionNamesTheBinaryAndItsVersion(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"--version"}, {"version"}} {
+		code, stdout, stderr := runTrack(t, args...)
+		if code != 0 || !regexp.MustCompile(`^track \S+`).MatchString(stdout) || stderr != "" {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q", args, code, stdout, stderr)
+		}
+	}
+}
