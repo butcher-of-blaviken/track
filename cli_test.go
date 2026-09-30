@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -176,5 +178,109 @@ func TestSubcommands_DoNotNeedAWorkingConfigFile(t *testing.T) {
 	code := realMain([]string{"--data-dir", dir, "--config", cfg, "add", "still works"}, env(nil), &out, &errOut)
 	if code != 0 || out.String() != "Added task 1: still works\n" {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, out.String(), errOut.String())
+	}
+}
+
+func TestExport_DefaultsToJSONOnStdout(t *testing.T) {
+	dir := t.TempDir()
+	track(t, dir, "add", "write the PRD ##docs")
+	track(t, dir, "note", "call the bank")
+
+	code, stdout, stderr := track(t, dir, "export")
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	var got struct {
+		Version int `json:"version"`
+		Tasks   []struct {
+			Title string   `json:"title"`
+			Tags  []string `json:"tags"`
+		} `json:"tasks"`
+		Unfiled []struct {
+			Text string `json:"text"`
+		} `json:"unfiled_notes"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, stdout)
+	}
+	if got.Version != 1 || len(got.Tasks) != 1 || got.Tasks[0].Title != "write the PRD" || got.Tasks[0].Tags[0] != "docs" || got.Unfiled[0].Text != "call the bank" {
+		t.Errorf("export = %+v", got)
+	}
+}
+
+func TestExport_MarkdownFormatAndItsAlias(t *testing.T) {
+	dir := t.TempDir()
+	track(t, dir, "add", "write the PRD")
+	for _, format := range []string{"markdown", "md"} {
+		code, stdout, _ := track(t, dir, "export", "--format", format)
+		if code != 0 || !strings.Contains(stdout, "## write the PRD") || !strings.HasPrefix(stdout, "# track export") {
+			t.Errorf("--format %s: exit %d, stdout %q", format, code, stdout)
+		}
+	}
+}
+
+func TestExport_OutputWritesAFileAndPrintsNothing(t *testing.T) {
+	dir := t.TempDir()
+	track(t, dir, "add", "write the PRD")
+	out := filepath.Join(t.TempDir(), "backup.json")
+	code, stdout, stderr := track(t, dir, "export", "-o", out)
+	if code != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || !strings.Contains(string(data), `"write the PRD"`) {
+		t.Errorf("file = %q, %v", data, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(out), "*.tmp*")); len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+}
+
+func TestExport_AFailedWriteLeavesAnExistingFileAlone(t *testing.T) {
+	dir := t.TempDir()
+	track(t, dir, "add", "x")
+	out := filepath.Join(t.TempDir(), "backup.json")
+	if err := os.WriteFile(out, []byte("precious"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A directory cannot be replaced by a file, so the rename fails.
+	bad := filepath.Join(t.TempDir(), "sub")
+	if err := os.Mkdir(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := track(t, dir, "export", "-o", bad); code != 1 || stderr == "" {
+		t.Errorf("exit %d, stderr %q; want 1 and a message", code, stderr)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(bad), "*.tmp*")); len(left) != 0 {
+		t.Errorf("a failed export left temp files: %v", left)
+	}
+	if code, _, _ := track(t, dir, "export", "-o", filepath.Join(out, "no", "such")); code != 1 {
+		t.Errorf("a path under a file: exit %d, want 1", code)
+	}
+	if data, _ := os.ReadFile(out); string(data) != "precious" {
+		t.Errorf("existing file changed: %q", data)
+	}
+}
+
+func TestExport_UsageMistakesExitTwo(t *testing.T) {
+	cases := map[string][]string{
+		"bad format":     {"export", "--format", "yaml"},
+		"stray argument": {"export", "extra"},
+		"unknown flag":   {"export", "--nope"},
+	}
+	for name, args := range cases {
+		if code, stdout, stderr := track(t, t.TempDir(), args...); code != 2 || stdout != "" || stderr == "" {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want 2, nothing, a message", name, code, stdout, stderr)
+		}
+	}
+	if code, _, stderr := track(t, t.TempDir(), "export", "-h"); code != 0 || !strings.Contains(stderr, "Usage: track export") {
+		t.Errorf("-h: exit %d, stderr %q", code, stderr)
+	}
+}
+
+func TestExport_AnEmptyDatabaseExportsEmptyLists(t *testing.T) {
+	code, stdout, _ := track(t, t.TempDir(), "export")
+	if code != 0 || !strings.Contains(stdout, `"tasks": []`) {
+		t.Errorf("exit %d, stdout %q", code, stdout)
 	}
 }

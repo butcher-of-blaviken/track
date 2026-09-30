@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
+	"github.com/butcher-of-blaviken/track/internal/export"
 )
 
 // command is a non-interactive subcommand that takes some free text.
@@ -95,4 +98,87 @@ func runNote(ctx context.Context, t *core.Tracker, text string, stdout io.Writer
 	}
 	_, err = fmt.Fprintf(stdout, "Saved note %d to the inbox\n", note.ID)
 	return err
+}
+
+func exportUsage(w io.Writer) {
+	_, _ = fmt.Fprint(w, `Usage: track export [--format json|markdown] [--output FILE]
+
+Write every Task, Focus session and note, in every state, as JSON (the default)
+or Markdown, to stdout or to FILE. The file is written in one piece, so a failed
+export never leaves half of one. Flags go before the subcommand:
+track --data-dir DIR export
+`)
+}
+
+// runExport is `track export`. Like add and note it needs only the database,
+// and it only reads it, so it is safe while the app is open.
+func runExport(words []string, opts options, getenv func(string) string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("track export", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
+	format := fs.String("format", "json", "")
+	output := fs.String("output", "", "")
+	fs.StringVar(output, "o", "", "")
+	fs.StringVar(format, "f", "json", "")
+	if err := fs.Parse(words); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			exportUsage(stderr)
+			return 0
+		}
+		_, _ = fmt.Fprintf(stderr, "track export: %v\nRun 'track export -h' for usage.\n", err)
+		return exitUsage
+	}
+	var render func(io.Writer, core.Export) error
+	switch strings.ToLower(*format) {
+	case "json":
+		render = export.JSON
+	case "markdown", "md":
+		render = export.Markdown
+	default:
+		_, _ = fmt.Fprintf(stderr, "track export: unknown format %q (json or markdown)\nRun 'track export -h' for usage.\n", *format)
+		return exitUsage
+	}
+	if fs.NArg() > 0 {
+		_, _ = fmt.Fprintf(stderr, "track export: unexpected argument %q\nRun 'track export -h' for usage.\n", fs.Arg(0))
+		return exitUsage
+	}
+
+	a, err := openApp(opts.dataDir, getenv, config.Defaults())
+	if err != nil {
+		return report(err, stderr)
+	}
+	defer func() { _ = a.close() }()
+	data, err := a.tracker.Export(context.Background())
+	if err != nil {
+		return report(err, stderr)
+	}
+	if *output == "" {
+		return report(render(stdout, data), stderr)
+	}
+	return report(writeFileAtomically(*output, func(w io.Writer) error { return render(w, data) }), stderr)
+}
+
+// writeFileAtomically writes to a temporary file beside path and renames it
+// into place, so path is either untouched or complete.
+func writeFileAtomically(path string, write func(io.Writer) error) (err error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if err = write(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if err = os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

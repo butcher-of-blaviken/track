@@ -46,9 +46,12 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	case len(opts.rest) == 0:
 		return report(runTUI(opts, getenv), stderr)
 	}
+	if opts.rest[0] == "export" {
+		return runExport(opts.rest[1:], opts, getenv, stdout, stderr)
+	}
 	cmd, ok := findCommand(opts.rest[0])
 	if !ok {
-		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note)\nRun 'track --help' for usage.\n", opts.rest[0])
+		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export)\nRun 'track --help' for usage.\n", opts.rest[0])
 		return exitUsage
 	}
 	return runCommand(cmd, opts.rest[1:], opts, getenv, stdout, stderr)
@@ -122,6 +125,7 @@ func usage(w io.Writer) {
   track [flags]             open the app
   track add <text>          create a Task; ##tag words become Tags
   track note <text>         save a note to the inbox, to file onto a Task later
+  track export              write everything as JSON or Markdown (-f, -o FILE)
 
 Flags (they go before the subcommand: track --data-dir DIR add <text>):
   --focus-duration d       length of a Focus session (default %s)
