@@ -22,7 +22,7 @@ func writeConfig(t *testing.T, text string) string {
 func TestDefaults(t *testing.T) {
 	want := config.Settings{
 		FocusDuration: 30 * time.Minute, BreakDuration: 10 * time.Minute, LongBreakDuration: 20 * time.Minute,
-		LongBreakInterval: 4, BellInterval: 30 * time.Second, BellRepeats: 10,
+		LongBreakInterval: 4, BellInterval: 30 * time.Second, BellRepeats: 10, Layout: config.LayoutAuto,
 	}
 	if got := config.Defaults(); got != want {
 		t.Errorf("Defaults() = %+v, want %+v", got, want)
@@ -59,6 +59,7 @@ long_break_duration = "25m"
 long_break_interval = 3
 bell_interval = "10s"
 bell_repeats = 2
+layout = "single"
 `)
 	got, err := config.Load(path, true)
 	if err != nil {
@@ -66,7 +67,7 @@ bell_repeats = 2
 	}
 	want := config.Settings{
 		FocusDuration: 45 * time.Minute, BreakDuration: 7*time.Minute + 30*time.Second, LongBreakDuration: 25 * time.Minute,
-		LongBreakInterval: 3, BellInterval: 10 * time.Second, BellRepeats: 2,
+		LongBreakInterval: 3, BellInterval: 10 * time.Second, BellRepeats: 2, Layout: config.LayoutSingle,
 	}
 	if got != want {
 		t.Errorf("Load = %+v, want %+v", got, want)
@@ -105,6 +106,8 @@ func TestLoad_BadConfigNamesTheFileAndTheKey(t *testing.T) {
 		"string for an integer":     {"long_break_interval = \"4\"\n", []string{"long_break_interval", "integer"}},
 		"interval below one":        {"long_break_interval = 0\n", []string{"long_break_interval", "at least 1"}},
 		"negative repeats":          {"bell_repeats = -1\n", []string{"bell_repeats", "0 or more"}},
+		"unknown layout":            {"layout = \"grid\"\n", []string{"layout", `"auto"`, `"split"`, `"single"`, "grid"}},
+		"number for layout":         {"layout = 2\n", []string{"layout", `"single"`}},
 		"zero bell interval":        {"bell_interval = \"0s\"\n", []string{"bell_interval", "positive"}},
 		"syntax error reports line": {"focus_duration = \"30m\"\nthis is not toml\n", []string{"line 2"}},
 	} {
@@ -229,6 +232,7 @@ func TestV1ConfigStillLoads(t *testing.T) {
 		LongBreakInterval: 3,
 		BellInterval:      15 * time.Second,
 		BellRepeats:       2,
+		Layout:            config.LayoutAuto, // a key added later takes its default
 	}
 	if got != want {
 		t.Errorf("a v1 config now means something else:\n got  %+v\n want %+v", got, want)

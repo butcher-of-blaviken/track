@@ -26,7 +26,18 @@ type Settings struct {
 	BellInterval      time.Duration
 	// BellRepeats is how many times the bell repeats after its first ring.
 	BellRepeats int
+	// Layout is how the main screen is laid out: LayoutAuto, LayoutSplit or
+	// LayoutSingle.
+	Layout string
 }
+
+// The layouts. Split and auto both show the panels side by side when the
+// terminal has room; single always shows one pane at a time.
+const (
+	LayoutAuto   = "auto"
+	LayoutSplit  = "split"
+	LayoutSingle = "single"
+)
 
 // Defaults are the settings when nothing overrides them.
 func Defaults() Settings {
@@ -37,6 +48,7 @@ func Defaults() Settings {
 		LongBreakInterval: 4,
 		BellInterval:      30 * time.Second,
 		BellRepeats:       10,
+		Layout:            LayoutAuto,
 	}
 }
 
@@ -155,6 +167,13 @@ func (s *Settings) set(key string, value any) error {
 		return integer(key, value, 1, "at least 1", &s.LongBreakInterval)
 	case "bell_repeats":
 		return integer(key, value, 0, "0 or more", &s.BellRepeats)
+	case "layout":
+		text, ok := value.(string)
+		if !ok || (text != LayoutAuto && text != LayoutSplit && text != LayoutSingle) {
+			return fmt.Errorf(`layout: must be "auto", "split" or "single", got %v`, value)
+		}
+		s.Layout = text
+		return nil
 	}
 	return fmt.Errorf("unknown key %q", key)
 }

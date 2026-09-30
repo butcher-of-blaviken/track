@@ -61,7 +61,13 @@ func (r *rig) startSession(t *testing.T) core.FocusSession {
 // explicitly with TickMsg and never wait on a real timer.
 func noTick() tea.Cmd { return nil }
 
-func (r *rig) newModel() tea.Model { return tui.New(r.tracker, tui.WithTick(noTick)) }
+// newModel is the single-pane layout, which most tests are about; newSplitModel
+// is the one that shows the panels side by side when there is room.
+func (r *rig) newModel() tea.Model {
+	return tui.New(r.tracker, tui.WithTick(noTick), tui.WithLayout("single"))
+}
+
+func (r *rig) newSplitModel() tea.Model { return tui.New(r.tracker, tui.WithTick(noTick)) }
 
 // collect runs a command and returns the messages it produces, flattening batches.
 func collect(cmd tea.Cmd) []tea.Msg {

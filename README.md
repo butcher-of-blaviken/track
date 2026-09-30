@@ -43,6 +43,8 @@ If a session was still running when you last quit, Track offers to resume it on 
 
 Keys are listed per screen; `?` shows the same list in the app. Letters that type text (in the add, note and find prompts) are text, not commands.
 
+In a terminal at least 100 columns wide and 16 lines high, the list, the inbox and the detail of the task under the cursor show side by side, in three panels. The panel with a bright border has the keyboard: `i` moves to the inbox, `l` to the detail, and `esc` back. The report, the docs and the prompts take the whole screen. `v` switches to a single pane, one screen at a time, for the rest of the run; `layout` in the config file chooses which one Track starts in.
+
 ### The list
 
 | Key | Action |
@@ -61,6 +63,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `ctrl+p` | pick a task to start |
 | `tab` | scope: Active tasks only, or every state |
 | `j`/`k` | move the cursor |
+| `v` | switch between the split layout and a single pane |
 | `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
@@ -73,6 +76,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `c` | create a new task from the note |
 | `j`/`k` | move the cursor |
 | `esc` | back |
+| `v` | switch between the split layout and a single pane |
 | `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
@@ -85,6 +89,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `n` | add a note to this task |
 | `j`/`k` | scroll |
 | `esc` | back |
+| `v` | switch between the split layout and a single pane |
 | `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
@@ -165,9 +170,12 @@ long_break_duration = "20m"
 long_break_interval = 4
 bell_interval = "30s"
 bell_repeats = 10
+layout = "auto"
 ```
 
 `bell_interval` and `bell_repeats` say how the terminal bell repeats when a session or Break ends: once, then `bell_repeats` more times, one interval apart.
+
+`layout` is `"auto"` or `"split"` (the panels side by side when the terminal is wide enough; the two are the same today) or `"single"` (one pane at a time, always).
 
 Track looks for the file at `$XDG_CONFIG_HOME/track/config.toml` if that is set to an absolute path, otherwise at `~/Library/Application Support/track/config.toml` on macOS and `~/.config/track/config.toml` elsewhere. `--config FILE` names one explicitly, and then it must exist.
 
