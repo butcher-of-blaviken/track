@@ -26,6 +26,9 @@ type keyMap struct {
 
 	// Report view. Its Back is the detail's, plus r.
 	Report, ReportBack, Period key.Binding
+	// PrevDay and NextDay step the report by a day and Copy puts its Markdown on
+	// the clipboard; Days stands for PrevDay and NextDay together in the footer.
+	PrevDay, NextDay, Days, Copy key.Binding
 
 	// Help toggles the full help in the list, inbox, detail and report.
 	Help key.Binding
@@ -81,6 +84,10 @@ func newKeyMap() keyMap {
 		Report:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "report")),
 		ReportBack: key.NewBinding(key.WithKeys("esc", "r"), key.WithHelp("esc", "back")),
 		Period:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "period")),
+		PrevDay:    key.NewBinding(key.WithKeys("[")),
+		NextDay:    key.NewBinding(key.WithKeys("]")),
+		Days:       key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "day")),
+		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 		Detail:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "open")),
 		DetailBack: key.NewBinding(key.WithKeys("esc", "h"), key.WithHelp("esc", "back")),
 		Scroll:     key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "scroll")),
@@ -183,11 +190,11 @@ func (k keyMap) detailFull() [][]key.Binding {
 
 // reportHelp is what the footer shows in the report, and reportFull its full help.
 func (k keyMap) reportHelp() []key.Binding {
-	return []key.Binding{k.Period, k.Scroll, k.ReportBack, k.Help, k.Quit}
+	return []key.Binding{k.Period, k.Days, k.Copy, k.Scroll, k.ReportBack, k.Help, k.Quit}
 }
 
 func (k keyMap) reportFull() [][]key.Binding {
-	return [][]key.Binding{{k.Period}, {k.Scroll, k.ReportBack}, {k.Docs, k.Help, k.Quit}}
+	return [][]key.Binding{{k.Period, k.Days, k.Copy}, {k.Scroll, k.ReportBack}, {k.Docs, k.Help, k.Quit}}
 }
 
 // docsHelp is what the footer shows in the docs, and docsFull its full help.
