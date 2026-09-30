@@ -20,6 +20,9 @@ type keyMap struct {
 
 	// Task detail view.
 	Detail, DetailBack, Scroll key.Binding
+
+	// Report view. Its Back is the detail's, plus r.
+	Report, ReportBack, Period key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -50,6 +53,9 @@ func newKeyMap() keyMap {
 		Stop:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
 		Add:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Report:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "report")),
+		ReportBack: key.NewBinding(key.WithKeys("esc", "r"), key.WithHelp("esc", "back")),
+		Period:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "period")),
 		Detail:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "open")),
 		DetailBack: key.NewBinding(key.WithKeys("esc", "h"), key.WithHelp("esc", "back")),
 		Scroll:     key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "scroll")),
@@ -84,7 +90,8 @@ func newKeyMap() keyMap {
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Detail, k.Find, k.All, k.Move, k.Quit}
+	// The essentials come first, quit among them, so a narrow terminal cuts the extras.
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.Move, k.Quit, k.Note, k.Done, k.Detail, k.Report, k.All}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -128,4 +135,9 @@ func (k keyMap) noteHelp() []key.Binding {
 // detailHelp is what the footer shows in the Task detail view.
 func (k keyMap) detailHelp() []key.Binding {
 	return []key.Binding{k.Start, k.Note, k.Scroll, k.DetailBack, k.Quit}
+}
+
+// reportHelp is what the footer shows in the report.
+func (k keyMap) reportHelp() []key.Binding {
+	return []key.Binding{k.Period, k.Scroll, k.ReportBack, k.Quit}
 }

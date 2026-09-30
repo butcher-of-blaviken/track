@@ -61,7 +61,9 @@ func (r *reportRig) session(t *testing.T, task core.TaskID, start time.Time, sto
 	}
 }
 
-func at(day, hour, min int) time.Time { return time.Date(2026, 9, day, hour, min, 0, 0, reportZone) }
+func at(day, hour, minute int) time.Time {
+	return time.Date(2026, 9, day, hour, minute, 0, 0, reportZone)
+}
 
 func (r *reportRig) report(t *testing.T, p core.Period) core.Report {
 	t.Helper()
