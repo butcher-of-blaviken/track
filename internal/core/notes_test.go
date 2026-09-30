@@ -249,3 +249,39 @@ func TestTaskNotes_AreOrderedByWhenTheyWereWritten(t *testing.T) {
 		t.Errorf("TaskNotes of an unknown Task: error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestNotesByTask_GroupsFiledNotesOldestFirstAndSkipsUnfiled(t *testing.T) {
+	r := newRig(t)
+	a := r.addTask(t, core.StateActive)
+	b := r.addTask(t, core.StateActive)
+	first, _ := r.tracker.AddNote(ctx, a, "first on a")
+	r.clock.Advance(time.Minute)
+	other, _ := r.tracker.AddNote(ctx, b, "only on b")
+	r.clock.Advance(time.Minute)
+	second, _ := r.tracker.AddNote(ctx, a, "second on a")
+	if _, err := r.tracker.AddUnfiledNote(ctx, "not filed"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := r.tracker.NotesByTask(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || len(got[0]) != 0 {
+		t.Fatalf("got %+v, want notes for exactly two Tasks and none unfiled", got)
+	}
+	if want := []core.NoteID{first.ID, second.ID}; !slices.Equal(ids(got[a]), want) {
+		t.Errorf("a's notes = %v, want %v", ids(got[a]), want)
+	}
+	if want := []core.NoteID{other.ID}; !slices.Equal(ids(got[b]), want) {
+		t.Errorf("b's notes = %v, want %v", ids(got[b]), want)
+	}
+}
+
+func ids(notes []core.Note) []core.NoteID {
+	out := []core.NoteID{}
+	for _, n := range notes {
+		out = append(out, n.ID)
+	}
+	return out
+}

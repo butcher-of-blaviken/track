@@ -506,7 +506,7 @@ func (m Model) rows() []core.TaskMatch {
 	if m.mode == modePicker {
 		query = m.input.Value()
 	}
-	return core.SearchTasks(query, m.tasks)
+	return core.SearchTasks(query, m.tasks, nil)
 }
 
 func (m Model) openPicker(purpose pickPurpose) (tea.Model, tea.Cmd) {
