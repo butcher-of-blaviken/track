@@ -1,9 +1,14 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrInvalidTransition is returned when a Task is moved to a state it cannot
+// move to from where it is.
+var ErrInvalidTransition = errors.New("invalid task state change")
 
 // State is where a Task is in its lifecycle.
 type State int
@@ -60,7 +65,7 @@ func (t *Task) transition(to State, from ...State) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot move task from %v to %v", t.State, to)
+	return fmt.Errorf("%w: cannot move task from %v to %v", ErrInvalidTransition, t.State, to)
 }
 
 func (s State) String() string {
