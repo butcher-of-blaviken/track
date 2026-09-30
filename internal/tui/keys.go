@@ -18,6 +18,9 @@ type keyMap struct {
 
 	// Break-override confirmation. It shares ForceQuit too.
 	Confirm, Decline key.Binding
+
+	// Resume is the launch resume prompt's yes; its no is Decline.
+	Resume key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -39,6 +42,7 @@ func newKeyMap() keyMap {
 
 		Confirm: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "start")),
 		Decline: key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n", "cancel")),
+		Resume:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "resume")),
 	}
 }
 
@@ -60,4 +64,9 @@ func (k keyMap) handoffHelp() []key.Binding {
 // confirmBreakHelp is what the footer shows while the Break confirmation is open.
 func (k keyMap) confirmBreakHelp() []key.Binding {
 	return []key.Binding{k.Confirm, k.Decline, k.ForceQuit}
+}
+
+// resumeHelp is what the footer shows while the resume prompt is open.
+func (k keyMap) resumeHelp() []key.Binding {
+	return []key.Binding{k.Resume, k.Decline, k.ForceQuit}
 }

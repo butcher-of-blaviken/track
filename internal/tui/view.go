@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && m.mode != modeConfirmBreak && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -95,6 +96,13 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
+	if m.mode == modeResume {
+		lines := []string{"", "  Resume " + strconv.Quote(m.sessionTask.Title) + "?"}
+		if n := m.resumeNote; n != nil {
+			lines = append(lines, "  Last note ("+agoText(m.snap.At.Sub(n.CreatedAt))+"): "+n.Text)
+		}
+		return append(lines, "  "+m.helpLine(m.keys.resumeHelp()))
+	}
 	if m.mode == modeConfirmBreak {
 		return []string{
 			"",
