@@ -3,8 +3,11 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -1014,14 +1017,14 @@ func TestARunningSessionFromAnotherSettingShowsTheMismatchNotice(t *testing.T) {
 
 func TestABadFlagValueStopsTheAppNamingTheFlag(t *testing.T) {
 	t.Parallel()
-	tm := launch(t, nil, "--data-dir", t.TempDir(), "--focus-duration", "soon")
-	if status := tm.exitStatus(wait); status == 0 {
-		t.Error("exit status = 0, want a failure")
+	// Run without a terminal: the message is longer than an 80-column pane.
+	code, _, stderr := runTrack(t, "--data-dir", t.TempDir(), "--focus-duration", "soon")
+	if code != 2 {
+		t.Errorf("exit status = %d, want 2", code)
 	}
-	s := tm.screen()
 	for _, want := range []string{"focus-duration", "not a duration"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("the message lacks %q:\n%s", want, s)
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the message lacks %q:\n%s", want, stderr)
 		}
 	}
 }
@@ -1036,6 +1039,64 @@ func TestHelpListsTheFlagsAndExitsCleanly(t *testing.T) {
 	for _, want := range []string{"--focus-duration", "--break-duration", "--long-break-duration", "--long-break-interval"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the help lacks %q:\n%s", want, s)
+		}
+	}
+}
+
+// runTrack runs the real binary without a terminal, for the subcommands, and
+// returns its exit code and what it printed.
+func runTrack(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	cmd := exec.Command(binary, args...)
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	err := cmd.Run()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &exit):
+		code = exit.ExitCode()
+	default:
+		t.Fatalf("running track: %v", err)
+	}
+	return code, out.String(), errOut.String()
+}
+
+func TestAddAndNoteFromTheCommandLineAppearInTheApp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if code, stdout, stderr := runTrack(t, "--data-dir", dir, "add", "write the PRD ##docs"); code != 0 || !strings.Contains(stdout, "Added task 1: write the PRD  #docs") {
+		t.Fatalf("add: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if code, stdout, stderr := runTrack(t, "--data-dir", dir, "note", "check the retry logic"); code != 0 || !strings.Contains(stdout, "Saved note 1") {
+		t.Fatalf("note: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`write the PRD\s+#docs`, wait)
+	tm.waitFor(`Unfiled notes: 1`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestSubcommandExitCodes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for name, tc := range map[string]struct {
+		args []string
+		want int
+	}{
+		"add without text":  {[]string{"add"}, 2},
+		"note without text": {[]string{"note"}, 2},
+		"unknown command":   {[]string{"frobnicate"}, 2},
+		"tags-only add":     {[]string{"add", "##docs"}, 1},
+		"blank note":        {[]string{"note", " "}, 1},
+		"help":              {[]string{"--help"}, 0},
+	} {
+		if code, _, _ := runTrack(t, append([]string{"--data-dir", dir}, tc.args...)...); code != tc.want {
+			t.Errorf("%s: exit %d, want %d", name, code, tc.want)
 		}
 	}
 }

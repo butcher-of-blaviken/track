@@ -278,8 +278,8 @@ func TestSettingsFor_ABrokenConfigStillStopsStartupWhateverTheFlagsSay(t *testin
 	}
 }
 
-func TestRun_HelpSucceeds(t *testing.T) {
-	if err := run([]string{"--help"}, env(nil)); err != nil {
-		t.Errorf("run(--help) = %v, want nil", err)
+func TestRealMain_HelpSucceeds(t *testing.T) {
+	if code := realMain([]string{"--help"}, env(nil), io.Discard, io.Discard); code != 0 {
+		t.Errorf("realMain(--help) = %d, want 0", code)
 	}
 }
