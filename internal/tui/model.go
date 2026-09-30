@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -56,7 +57,9 @@ type handoffMsg struct {
 // addedMsg carries the result of creating a Task.
 type addedMsg struct {
 	task core.Task
-	err  error
+	// thenStart says the Task was created from the picker to start a session on.
+	thenStart bool
+	err       error
 }
 
 // Option customises a Model.
@@ -117,6 +120,13 @@ type Model struct {
 	resume     resumeState
 	resumeNote *core.Note
 
+	// filter is the applied list filter, empty for none. While the picker is
+	// open its own text is the query. pick is the open picker's purpose, and
+	// pickFrom the Task the cursor was on when it opened, for cancelling.
+	filter   string
+	pick     pickPurpose
+	pickFrom core.TaskID
+
 	keys keyMap
 	help help.Model
 
@@ -132,7 +142,24 @@ const (
 	modeHandoff
 	modeConfirmBreak
 	modeResume
+	modePicker
 )
+
+// pickPurpose is what the open picker is for.
+type pickPurpose int
+
+const (
+	// pickFilter narrows the list and keeps it narrowed on Enter.
+	pickFilter pickPurpose = iota
+	// pickStart starts a session on the chosen Task, or on a new one.
+	pickStart
+)
+
+// pickPlaceholders are the picker's hints, by purpose.
+var pickPlaceholders = map[pickPurpose]string{
+	pickFilter: " type to narrow the list",
+	pickStart:  " pick a task to start, or type a new one",
+}
 
 // resumeState tracks the once-per-launch offer to resume the last Task.
 type resumeState int
@@ -279,11 +306,11 @@ func (m Model) skipHandoff(session core.SessionID) tea.Cmd {
 }
 
 // add creates a Task from text off the UI goroutine.
-func (m Model) add(text string) tea.Cmd {
+func (m Model) add(text string, thenStart bool) tea.Cmd {
 	tracker := m.tracker
 	return func() tea.Msg {
 		task, err := tracker.AddTask(context.Background(), text)
-		return addedMsg{task: task, err: err}
+		return addedMsg{task: task, thenStart: thenStart, err: err}
 	}
 }
 
@@ -329,6 +356,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.closePrompt()
 		m.selected = msg.task.ID // the refresh puts the cursor on it
+		if msg.thenStart {
+			next, cmd := m.startTask(msg.task.ID)
+			return next, tea.Batch(cmd, m.fetch())
+		}
 		return m, m.fetch()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -346,6 +377,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirmBreak(msg)
 		case modeResume:
 			return m.updateResume(msg)
+		case modePicker:
+			return m.updatePicker(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -405,15 +438,18 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
 	case key.Matches(press, m.keys.Start):
-		if len(m.tasks) == 0 {
+		rows := m.rows()
+		if len(rows) == 0 {
 			return m, nil
 		}
-		id := m.tasks[m.cursor].ID
-		if m.snap.Phase == core.PhaseBreak {
-			m.mode, m.breakStart = modeConfirmBreak, id
-			return m, nil
-		}
-		return m, m.start(id, false)
+		return m.startTask(rows[min(m.cursor, len(rows)-1)].Task.ID)
+	case key.Matches(press, m.keys.Find):
+		return m.openPicker(pickFilter)
+	case key.Matches(press, m.keys.Pick):
+		return m.openPicker(pickStart)
+	case key.Matches(press, m.keys.Cancel) && m.filter != "":
+		m.filter = ""
+		m.reselect()
 	case key.Matches(press, m.keys.Stop):
 		return m, m.stop()
 	case key.Matches(press, m.keys.Down):
@@ -430,6 +466,83 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// startTask starts a session on a Task, asking first if a Break is running.
+func (m Model) startTask(id core.TaskID) (tea.Model, tea.Cmd) {
+	if m.snap.Phase == core.PhaseBreak {
+		m.mode, m.breakStart = modeConfirmBreak, id
+		return m, nil
+	}
+	return m, m.start(id, false)
+}
+
+// rows is what the list shows, best match first: every Active Task when there
+// is no query, and otherwise the Tasks matching the open picker's text or, when
+// it is closed, the applied filter.
+func (m Model) rows() []core.TaskMatch {
+	query := m.filter
+	if m.mode == modePicker {
+		query = m.input.Value()
+	}
+	return core.SearchTasks(query, m.tasks)
+}
+
+func (m Model) openPicker(purpose pickPurpose) (tea.Model, tea.Cmd) {
+	m.mode, m.pick, m.pickFrom, m.promptErr = modePicker, purpose, m.selected, ""
+	m.input.Reset()
+	m.input.Placeholder = pickPlaceholders[purpose]
+	m.sizeInput()
+	m.homePicker()
+	return m, m.input.Focus()
+}
+
+// homePicker puts the highlight on the best match, as the query just changed.
+func (m *Model) homePicker() {
+	m.cursor, m.top, m.selected = 0, 0, 0
+	if rows := m.rows(); len(rows) > 0 {
+		m.selected = rows[0].Task.ID
+	}
+}
+
+func (m Model) updatePicker(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	rows := m.rows()
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Cancel):
+		m.selected = m.pickFrom
+		m.closePrompt()
+		m.reselect()
+		return m, nil
+	case key.Matches(press, m.keys.PickDown):
+		m.moveCursor(1)
+		return m, nil
+	case key.Matches(press, m.keys.PickUp):
+		m.moveCursor(-1)
+		return m, nil
+	case key.Matches(press, m.keys.Submit):
+		query := strings.TrimSpace(m.input.Value())
+		switch {
+		case len(rows) > 0 && m.pick == pickFilter:
+			m.filter = query
+			m.selected = rows[min(m.cursor, len(rows)-1)].Task.ID
+			m.closePrompt()
+			m.reselect()
+			return m, nil
+		case len(rows) > 0:
+			id := rows[min(m.cursor, len(rows)-1)].Task.ID
+			m.closePrompt()
+			m.selected = id
+			m.reselect()
+			return m.startTask(id)
+		case m.pick == pickStart && query != "":
+			return m, m.add(query, true)
+		}
+		return m, nil
+	}
+	m.promptErr = ""
+	return m.forwardToPrompt(press)
+}
+
 func (m Model) updatePrompt(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(press, m.keys.ForceQuit):
@@ -438,7 +551,7 @@ func (m Model) updatePrompt(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.closePrompt()
 		return m, nil
 	case key.Matches(press, m.keys.Submit):
-		return m, m.add(m.input.Value())
+		return m, m.add(m.input.Value(), false)
 	}
 	m.promptErr = ""
 	return m.forwardToPrompt(press)
@@ -514,7 +627,11 @@ func (m Model) updateConfirmBreak(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) forwardToPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	before := m.input.Value()
 	m.input, cmd = m.input.Update(msg)
+	if m.mode == modePicker && m.input.Value() != before {
+		m.homePicker()
+	}
 	return m, cmd
 }
 
@@ -525,34 +642,36 @@ func (m *Model) closePrompt() {
 }
 
 func (m *Model) moveCursor(delta int) {
-	if len(m.tasks) == 0 {
+	rows := m.rows()
+	if len(rows) == 0 {
 		return
 	}
-	m.cursor = min(max(m.cursor+delta, 0), len(m.tasks)-1)
-	m.selected = m.tasks[m.cursor].ID
+	m.cursor = min(max(m.cursor+delta, 0), len(rows)-1)
+	m.selected = rows[m.cursor].Task.ID
 	m.scrollToCursor()
 }
 
 // reselect puts the cursor back on the selected Task after the list changed,
 // or clamps it to the list if that Task is gone.
 func (m *Model) reselect() {
-	for i, task := range m.tasks {
-		if task.ID == m.selected {
+	rows := m.rows()
+	for i, row := range rows {
+		if row.Task.ID == m.selected {
 			m.cursor = i
 			m.scrollToCursor()
 			return
 		}
 	}
-	m.cursor = min(max(m.cursor, 0), max(len(m.tasks)-1, 0))
+	m.cursor = min(max(m.cursor, 0), max(len(rows)-1, 0))
 	m.selected = 0
-	if len(m.tasks) > 0 {
-		m.selected = m.tasks[m.cursor].ID
+	if len(rows) > 0 {
+		m.selected = rows[m.cursor].Task.ID
 	}
 	m.scrollToCursor()
 }
 
 func (m *Model) scrollToCursor() {
-	m.top = clampTop(m.top, m.cursor, m.listRows(), len(m.tasks))
+	m.top = clampTop(m.top, m.cursor, m.listRows(), len(m.rows()))
 }
 
 // clampTop returns the first visible row so that the cursor row is inside a

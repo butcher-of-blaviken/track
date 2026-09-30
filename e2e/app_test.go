@@ -458,3 +458,63 @@ func TestASessionRecordedWithAnotherDurationShowsAMismatchNotice(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+func TestThePickerStartsAnExistingTaskAndCreatesANewOneInline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "write the PRD", `write the PRD`)
+	addTaskByKeyboard(tm, "fix the build", `fix the build`)
+
+	// Pick an existing Task by a fragment of its title.
+	tm.press("C-p")
+	tm.waitFor(`Start:`, wait)
+	tm.typeText("prd")
+	tm.waitUntil("only the match to be listed", wait, func(s string) bool {
+		return strings.Contains(s, "write the PRD") && !strings.Contains(s, "fix the build")
+	})
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
+	tm.press("x")
+	tm.waitFor(`Hand-off for: write the PRD`, wait)
+	skipHandoff(tm)
+	tm.waitFor(`Idle`, wait) // the resume prompt is not offered mid-run
+
+	// Nothing matches, so the picker offers to create the Task and start it.
+	tm.press("C-p")
+	tm.typeText("zzz brand new ##docs")
+	tm.waitFor(`Create "zzz brand new ##docs"`, wait)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+zzz brand new`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestSlashFiltersTheListUntilEscClearsIt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "write the PRD", `write the PRD`)
+	addTaskByKeyboard(tm, "fix the build", `fix the build`)
+
+	tm.press("/")
+	tm.waitFor(`Find:`, wait)
+	tm.typeText("build")
+	tm.press("Enter")
+	tm.waitUntil("the filtered list", wait, func(s string) bool {
+		return strings.Contains(s, "Filter: build") && strings.Contains(s, "fix the build") && !strings.Contains(s, "write the PRD")
+	})
+
+	tm.press("Escape")
+	tm.waitUntil("the whole list again", wait, func(s string) bool {
+		return !strings.Contains(s, "Filter:") && strings.Contains(s, "write the PRD") && strings.Contains(s, "fix the build")
+	})
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

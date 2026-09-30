@@ -17,12 +17,19 @@ import (
 const (
 	addLabel     = "  Add task: "
 	handoffLabel = "  Note: "
+	findLabel    = "  Find: "
+	startLabel   = "  Start: "
 )
 
 // promptLabel is the text before the input on the open prompt's line.
 func (m Model) promptLabel() string {
-	if m.mode == modeHandoff {
+	switch {
+	case m.mode == modeHandoff:
 		return handoffLabel
+	case m.mode == modePicker && m.pick == pickFilter:
+		return findLabel
+	case m.mode == modePicker:
+		return startLabel
 	}
 	return addLabel
 }
@@ -77,6 +84,9 @@ func (m Model) header() []string {
 		if m.unfiled > 0 {
 			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d", m.unfiled))
 		}
+		if m.filter != "" && m.mode != modePicker {
+			lines = append(lines, "  Filter: "+m.filter+"  (esc clears)")
+		}
 	}
 	return append(lines, "")
 }
@@ -119,6 +129,9 @@ func (m Model) footer() []string {
 		if m.mode == modeHandoff {
 			lines = append(lines, m.handoffContext())
 			help = m.keys.handoffHelp()
+		}
+		if m.mode == modePicker {
+			help = m.keys.pickerHelp(m.pickAccept())
 		}
 		lines = append(lines, m.promptLabel()+m.input.View())
 		if m.promptErr != "" {
@@ -183,7 +196,7 @@ func (m Model) helpLine(bindings []key.Binding) string {
 // listRows is how many Task rows fit between the header and footer.
 func (m Model) listRows() int {
 	if m.height <= 0 {
-		return max(len(m.tasks), 1)
+		return max(len(m.rows()), 1)
 	}
 	return max(m.height-len(m.header())-len(m.footer()), 1)
 }
@@ -192,20 +205,75 @@ func (m Model) listLines(rows int) []string {
 	if !m.loaded {
 		return nil
 	}
-	if len(m.tasks) == 0 {
+	matches := m.rows()
+	if len(matches) == 0 {
+		query := strings.TrimSpace(m.input.Value())
+		switch {
+		case m.mode == modePicker && m.pick == pickStart && query != "":
+			return []string{"  + Create " + strconv.Quote(query) + " and start"}
+		case m.mode == modePicker && query != "", m.mode != modePicker && m.filter != "":
+			return []string{"  No matches"}
+		}
 		return []string{"  No tasks yet. Press a to add one."}
 	}
-	top := clampTop(m.top, m.cursor, rows, len(m.tasks))
-	end := min(top+rows, len(m.tasks))
+	top := clampTop(m.top, m.cursor, rows, len(matches))
+	end := min(top+rows, len(matches))
 	lines := make([]string, 0, end-top)
 	for i := top; i < end; i++ {
 		marker := "  "
 		if i == m.cursor {
 			marker = "> "
 		}
-		lines = append(lines, "  "+marker+taskText(m.tasks[i]))
+		lines = append(lines, "  "+marker+matchText(matches[i]))
 	}
 	return lines
+}
+
+// pickAccept is what Enter does in the open picker, for the footer.
+func (m Model) pickAccept() string {
+	switch {
+	case m.pick == pickFilter:
+		return "filter"
+	case len(m.rows()) == 0 && strings.TrimSpace(m.input.Value()) != "":
+		return "create"
+	}
+	return "start"
+}
+
+var matchStyle = lipgloss.NewStyle().Bold(true).Underline(true)
+
+// matchText is taskText with the characters the search matched highlighted.
+func matchText(tm core.TaskMatch) string {
+	text := taskText(tm.Task)
+	if len(tm.Runes) == 0 {
+		return text
+	}
+	return highlight(tm.Task.Title, tm.Runes) + strings.TrimPrefix(text, tm.Task.Title)
+}
+
+// highlight styles the runes of title at the given rune offsets.
+func highlight(title string, offsets []int) string {
+	hit := make(map[int]bool, len(offsets))
+	for _, o := range offsets {
+		hit[o] = true
+	}
+	var out, run strings.Builder
+	flush := func() {
+		if run.Len() > 0 {
+			out.WriteString(matchStyle.Render(run.String()))
+			run.Reset()
+		}
+	}
+	for i, r := range []rune(title) {
+		if hit[i] {
+			run.WriteRune(r)
+			continue
+		}
+		flush()
+		out.WriteRune(r)
+	}
+	flush()
+	return out.String()
 }
 
 // taskText is a Task's title followed by its Tags as #tag chips.
