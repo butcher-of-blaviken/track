@@ -68,6 +68,9 @@ func (m Model) header() []string {
 		lines = append(lines, "  Loading…")
 	default:
 		lines = append(lines, "  "+m.phaseLine())
+		if m.snap.Phase == core.PhaseFocus && m.snap.Session.PlannedDuration != m.focusDuration {
+			lines = append(lines, "  This session is "+durationText(m.snap.Session.PlannedDuration)+"; the current setting is "+durationText(m.focusDuration)+".")
+		}
 		if m.snap.HandoffPending {
 			lines = append(lines, "  Hand-off due")
 		}
@@ -231,6 +234,18 @@ func (m Model) phaseLine() string {
 		return "Break   " + clockText(m.snap.Remaining)
 	}
 	return "Idle"
+}
+
+// durationText words a duration compactly, e.g. "45m", "1h" or "1h30m".
+func durationText(d time.Duration) string {
+	text := d.Round(time.Second).String()
+	if strings.HasSuffix(text, "m0s") {
+		text = strings.TrimSuffix(text, "0s")
+	}
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
 }
 
 // clockText formats d as mm:ss, rounding up so the display reaches 00:00 only
