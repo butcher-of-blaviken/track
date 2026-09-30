@@ -50,3 +50,41 @@ func TestSearchTasks_NothingMatchesReturnsNoTasks(t *testing.T) {
 		t.Errorf("got %+v, want none", got)
 	}
 }
+
+func TestSearchTasks_MatchesTagNames(t *testing.T) {
+	tasks := []core.Task{
+		{ID: 1, Title: "unrelated", Tags: []string{"docs"}},
+		{ID: 2, Title: "write docs"},
+		{ID: 3, Title: "nothing"},
+	}
+	got := core.SearchTasks("docs", tasks)
+	if len(got) != 2 || got[0].Task.ID != 2 || got[1].Task.ID != 1 {
+		t.Fatalf("got %+v, want the title match (2) then the Tag match (1)", got)
+	}
+}
+
+func TestSearchTasks_ReportsTheMatchedTagsAndTheirRunes(t *testing.T) {
+	tasks := []core.Task{{ID: 1, Title: "x", Tags: []string{"backend", "Docs"}}}
+	got := core.SearchTasks("doc", tasks)
+	if len(got) != 1 {
+		t.Fatalf("got %+v, want one match", got)
+	}
+	want := map[int][]int{1: {0, 1, 2}}
+	if !reflect.DeepEqual(got[0].TagRunes, want) {
+		t.Errorf("TagRunes = %v, want %v (by index into Task.Tags)", got[0].TagRunes, want)
+	}
+	if len(got[0].Runes) != 0 {
+		t.Errorf("title Runes = %v, want none", got[0].Runes)
+	}
+}
+
+func TestSearchTasks_HashTokensFilterByTag(t *testing.T) {
+	tasks := []core.Task{
+		{ID: 1, Title: "docs"},
+		{ID: 2, Title: "other", Tags: []string{"docs"}},
+	}
+	got := core.SearchTasks("#docs", tasks)
+	if len(got) != 1 || got[0].Task.ID != 2 {
+		t.Errorf("got %+v, want only the tagged Task", got)
+	}
+}

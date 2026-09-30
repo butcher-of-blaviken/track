@@ -187,3 +187,29 @@ func TestRank_EqualScoresKeepInputOrder(t *testing.T) {
 func TestRank_ExcludesDocsThatDoNotMatch(t *testing.T) {
 	wantOrder(t, "zzz", core.Rank("zzz", docs("write the PRD", "fix build")))
 }
+
+func TestRank_ATokenStartingWithHashMatchesTagsOnly(t *testing.T) {
+	d := []core.Doc{
+		{Title: "docs"},                          // title only
+		{Title: "other", Tags: []string{"docs"}}, // tagged
+		{Title: "write docs", Tags: []string{"docs", "backend"}},
+	}
+	for _, q := range []string{"#docs", "##docs"} {
+		got := core.Rank(q, d)
+		wantOrder(t, q, got, 1, 2)
+		for _, r := range got {
+			for _, m := range r.Matches {
+				if m.Field != core.FieldTag {
+					t.Errorf("%q matched a %v field, want Tags only", q, m.Field)
+				}
+			}
+		}
+	}
+	wantOrder(t, "#docs write", core.Rank("#docs write", d), 2)
+}
+
+func TestRank_ABareHashIsIgnored(t *testing.T) {
+	d := docs("one", "two")
+	wantOrder(t, "#", core.Rank("#", d), 0, 1)
+	wantOrder(t, "# one", core.Rank("# one", d), 0)
+}
