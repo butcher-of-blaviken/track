@@ -1276,14 +1276,14 @@ func (m Model) updateDetail(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// detailHeadLines is the lines above the note log: the Task, its focused time,
-// a blank and the heading.
+// detailHeadLines is the lines above the scrolling body of the detail: the Task,
+// its focused time, its state and creation time, and a blank.
 const detailHeadLines = 4
 
-// detailMaxTop is how far the note log can scroll.
+// detailMaxTop is how far the detail's body can scroll.
 func (m Model) detailMaxTop() int {
 	avail := max(m.listRows()-detailHeadLines, 1)
-	return max(len(m.detail.Notes)-avail, 0)
+	return max(len(m.detailBody())-avail, 0)
 }
 
 // reportPeriod is the window to read while the report is open, nil otherwise.

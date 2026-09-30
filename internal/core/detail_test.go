@@ -96,3 +96,42 @@ func TestTaskDetail_WorksForDoneTasksAndRejectsUnknownOnes(t *testing.T) {
 		t.Errorf("unknown task: err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestTaskDetail_ListsTheTasksSessionsNewestFirstAndNotOtherTasks(t *testing.T) {
+	r := newRig(t)
+	id, other := r.addTask(t, core.StateActive), r.addTask(t, core.StateActive)
+
+	first := r.completeSession(t, id) // 30m, then its Break
+	r.clock.Advance(time.Hour)
+	if _, err := r.tracker.StartSession(ctx, other, 30*time.Minute, core.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(40 * time.Minute)
+	second, err := r.tracker.StartSession(ctx, id, 30*time.Minute, core.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(5 * time.Minute) // still running
+
+	d, err := r.tracker.TaskDetail(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.History) != 2 || d.History[0].ID != second.ID || d.History[1].ID != first.ID {
+		t.Fatalf("history = %+v, want the running session then the completed one", d.History)
+	}
+	if !d.At.Equal(r.clock.Now()) {
+		t.Errorf("At = %v, want now", d.At)
+	}
+	if d.History[0].Outcome(d.At) != core.OutcomeRunning || d.History[1].Outcome(d.At) != core.OutcomeCompleted {
+		t.Errorf("outcomes at At: %v, %v", d.History[0].Outcome(d.At), d.History[1].Outcome(d.At))
+	}
+}
+
+func TestTaskDetail_HistoryIsEmptyNotNilForATaskWithNoSessions(t *testing.T) {
+	r := newRig(t)
+	d, err := r.tracker.TaskDetail(ctx, r.addTask(t, core.StateActive))
+	if err != nil || d.History == nil || len(d.History) != 0 {
+		t.Errorf("history = %#v, %v", d.History, err)
+	}
+}
