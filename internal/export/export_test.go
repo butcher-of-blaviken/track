@@ -154,3 +154,48 @@ func TestMarkdown_AnEmptyExportSaysSo(t *testing.T) {
 		t.Errorf("got:\n%s", out)
 	}
 }
+
+// flatten lists the path of every key in a decoded JSON document, with [] for
+// each array level, for example tasks[].sessions[].started_at.
+func flatten(v any, prefix string, into map[string]bool) {
+	switch v := v.(type) {
+	case map[string]any:
+		for k, x := range v {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			into[p] = true
+			flatten(x, p, into)
+		}
+	case []any:
+		for _, x := range v {
+			flatten(x, prefix+"[]", into)
+		}
+	}
+}
+
+// Scripts read the export, so version 1 keeps every key it had
+// (docs/adr/0003-backward-compatibility.md). Keys may be added; removing or
+// renaming one needs a new version number.
+func TestJSON_Version1KeepsEveryKeyItHad(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "json_v1_paths.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc any
+	out := render(t, func(b *bytes.Buffer) error { return export.JSON(b, sample()) })
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	flatten(doc, "", have)
+	for _, line := range strings.Split(string(frozen), "\n") {
+		if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !have[line] {
+			t.Errorf("the version 1 export lost the key %s", line)
+		}
+	}
+}

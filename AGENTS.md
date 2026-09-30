@@ -28,6 +28,7 @@ Never commit directly to `main`.
 
 ## Architecture rules
 
+- Stay backward compatible (`docs/adr/0003-backward-compatibility.md`). A migration may only add; a config key, subcommand, flag or JSON export key is never removed or renamed. A new schema version needs a new `schema_vN.db` fixture in `internal/store/sqlite/testdata` (see `compat_test.go`); never edit an existing fixture, `config_v1.toml` or `json_v1_paths.txt` to make a test pass.
 - Domain logic lives in `internal/core` and must not import UI packages (see `docs/adr/0002-ui-decoupled-pull-based-core.md`).
 - Domain vocabulary is defined in `CONTEXT.md`; use those terms in code, tests and issues.
 

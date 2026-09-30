@@ -213,3 +213,24 @@ func TestApply_OverridesOnlyTheFieldsThatAreSet(t *testing.T) {
 		t.Errorf("Apply = %+v, want the two Break durations replaced and the focus duration kept", got)
 	}
 }
+
+// A config file written for v1.0.0 keeps loading, with the same meaning, in
+// every later version (docs/adr/0003-backward-compatibility.md). Keys may be
+// added; none may be removed, renamed or change meaning.
+func TestV1ConfigStillLoads(t *testing.T) {
+	got, err := config.Load(filepath.Join("testdata", "config_v1.toml"), true)
+	if err != nil {
+		t.Fatalf("a v1 config no longer loads: %v", err)
+	}
+	want := config.Settings{
+		FocusDuration:     45 * time.Minute,
+		BreakDuration:     7 * time.Minute,
+		LongBreakDuration: 25 * time.Minute,
+		LongBreakInterval: 3,
+		BellInterval:      15 * time.Second,
+		BellRepeats:       2,
+	}
+	if got != want {
+		t.Errorf("a v1 config now means something else:\n got  %+v\n want %+v", got, want)
+	}
+}
