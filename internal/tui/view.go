@@ -42,7 +42,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -95,6 +95,13 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
+	if m.mode == modeConfirmBreak {
+		return []string{
+			"",
+			"  Break in progress (" + clockText(m.snap.Remaining) + " left). Start anyway?",
+			"  " + m.helpLine(m.keys.confirmBreakHelp()),
+		}
+	}
 	if m.mode != modeList {
 		lines := []string{""}
 		help := m.keys.promptHelp()

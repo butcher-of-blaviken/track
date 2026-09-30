@@ -106,6 +106,9 @@ type Model struct {
 	// that was already in flight cannot reopen the prompt for it.
 	handoffFor, handoffResolved core.SessionID
 
+	// breakStart is the Task the open Break confirmation would start a session on.
+	breakStart core.TaskID
+
 	keys keyMap
 	help help.Model
 
@@ -119,6 +122,7 @@ const (
 	modeList mode = iota
 	modeAdd
 	modeHandoff
+	modeConfirmBreak
 )
 
 // bellID identifies one bell event: the end of a session, or of its Break.
@@ -208,10 +212,11 @@ func (m Model) fetch() tea.Cmd {
 }
 
 // start starts a session on a Task off the UI goroutine.
-func (m Model) start(id core.TaskID) tea.Cmd {
+// override starts it even though a Break is running, and the core records that.
+func (m Model) start(id core.TaskID, override bool) tea.Cmd {
 	tracker, planned := m.tracker, m.focusDuration
 	return func() tea.Msg {
-		_, err := tracker.StartSession(context.Background(), id, planned, core.StartOptions{})
+		_, err := tracker.StartSession(context.Background(), id, planned, core.StartOptions{OverrideBreak: override})
 		return sessionMsg{err: err}
 	}
 }
@@ -304,6 +309,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePrompt(msg)
 		case modeHandoff:
 			return m.updateHandoff(msg)
+		case modeConfirmBreak:
+			return m.updateConfirmBreak(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -366,7 +373,12 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(m.tasks) == 0 {
 			return m, nil
 		}
-		return m, m.start(m.tasks[m.cursor].ID)
+		id := m.tasks[m.cursor].ID
+		if m.snap.Phase == core.PhaseBreak {
+			m.mode, m.breakStart = modeConfirmBreak, id
+			return m, nil
+		}
+		return m, m.start(id, false)
 	case key.Matches(press, m.keys.Stop):
 		return m, m.stop()
 	case key.Matches(press, m.keys.Down):
@@ -408,6 +420,23 @@ func (m Model) updateHandoff(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	m.promptErr = ""
 	return m.forwardToPrompt(press)
+}
+
+// updateConfirmBreak handles the Break-override confirmation. It is a yes/no
+// question, not a text prompt, so every key other than the answers is ignored.
+func (m Model) updateConfirmBreak(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Confirm):
+		m.mode = modeList
+		// Always ask the core to override: if the Break ended meanwhile it
+		// records nothing skipped.
+		return m, m.start(m.breakStart, true)
+	case key.Matches(press, m.keys.Decline):
+		m.mode = modeList
+	}
+	return m, nil
 }
 
 func (m Model) forwardToPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
