@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -68,7 +69,7 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) header() []string {
-	lines := []string{"Track"}
+	lines := []string{m.titleLine()}
 	if banner := m.banner(); banner != "" {
 		lines = append(lines, banner)
 	}
@@ -84,7 +85,7 @@ func (m Model) header() []string {
 			lines = append(lines, "  "+m.th.needsYou.Render("This session is "+durationText(m.snap.Session.PlannedDuration)+"; the current setting is "+durationText(m.focusDuration)+"."))
 		}
 		if m.snap.HandoffPending {
-			lines = append(lines, "  "+m.th.needsYou.Render("Hand-off due"))
+			lines = append(lines, "  "+m.th.badge(lipgloss.Yellow).Render(" Hand-off due "))
 		}
 		if m.unfiled > 0 {
 			lines = append(lines, "  "+m.th.needsYou.Render(fmt.Sprintf("Unfiled notes: %d (i to file)", m.unfiled)))
@@ -495,22 +496,6 @@ func (m Model) pickAccept() string {
 		return "create"
 	}
 	return "start"
-}
-
-// phaseLine is the panel's state line: the phase, its countdown, and for Focus
-// the Task being worked on.
-func (m Model) phaseLine() string {
-	switch m.snap.Phase {
-	case core.PhaseFocus:
-		line := m.th.focus.Render("Focus") + "   " + clockText(m.snap.Remaining)
-		if m.sessionTask != nil {
-			line += "   " + m.sessionTask.Title
-		}
-		return line
-	case core.PhaseBreak:
-		return m.th.rest.Render("Break") + "   " + clockText(m.snap.Remaining)
-	}
-	return m.th.muted.Render("Idle")
 }
 
 // durationText words a duration compactly, e.g. "45m", "1h" or "1h30m".

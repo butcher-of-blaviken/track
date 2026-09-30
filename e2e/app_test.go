@@ -831,8 +831,15 @@ func TestTheDetailViewShowsFocusedTimeAndTheLogAndTakesANote(t *testing.T) {
 // seedRecentWork creates a Task with the given Tags and a session that started
 // minutes ago, as another process sharing the database would. override marks
 // the session as having skipped part of a Break.
+//
+// The report clips sessions to the local day, so a session that began before
+// midnight would be cut short; in the quarter hour after midnight these tests
+// would be measuring that instead, so they skip.
 func seedRecentWork(t *testing.T, dir, title string, tags []string, override bool) {
 	t.Helper()
+	if now := time.Now(); now.Hour() == 0 && now.Minute() < 15 {
+		t.Skip("too close to midnight: the seeded sessions would cross it")
+	}
 	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1293,5 +1300,22 @@ func TestNoColorLeavesNoColourCodes(t *testing.T) {
 		if !strings.Contains(plain, want) {
 			t.Errorf("the plain screen lacks %q:\n%s", want, plain)
 		}
+	}
+}
+
+func TestTheHeaderShowsAPhaseBadgeAndAProgressBar(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "read the docs")
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`Idle\s+Pick a task and press enter to start a 30 minute session`, wait)
+
+	tm.press("s")
+	row := tm.waitFor(`Focus\s+\d\d:\d\d\s+read the docs\s+[█░]{20,} \d+%`, wait)
+	if strings.Count(row, "█")+strings.Count(row, "░") != 28 {
+		t.Errorf("the bar is not 28 cells wide at 80 columns:\n%s", row)
+	}
+	if p := sgrAt(t, tm.styledScreen(), " Focus "); !p[7] || !p[35] {
+		t.Errorf("the Focus badge has SGR %v, want reverse (7) and magenta (35)", p)
 	}
 }

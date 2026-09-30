@@ -56,13 +56,19 @@ func (th theme) tag(name string) lipgloss.Style {
 	return th.tags[(h.Sum32()>>16)%uint32(len(th.tags))]
 }
 
+// badge is a pill of the terminal's own background colour on c, for the phase
+// and for things that need you.
+func (th theme) badge(c color.Color) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(c).Reverse(true).Bold(true)
+}
+
 // banner is the bar shown while a bell rings, coloured by what it announces.
 func (th theme) banner(kind core.BellKind) lipgloss.Style {
 	c := color.Color(lipgloss.Green) // a Focus session completed and a Break began
 	if kind == core.BellBreakEnd {
 		c = lipgloss.Yellow // the Break is over and it needs you
 	}
-	return lipgloss.NewStyle().Foreground(c).Reverse(true).Bold(true)
+	return th.badge(c)
 }
 
 // taskText is a Task's row text: its title with the characters the search
