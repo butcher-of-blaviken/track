@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "days": [
+    {
+      "date": "2026-09-29",
+      "from": "2026-09-28T21:00:00Z",
+      "to": "2026-09-29T21:00:00Z",
+      "focused_seconds": 0,
+      "sessions": 0,
+      "finished": [],
+      "tasks": [],
+      "unfiled_notes": []
+    },
+    {
+      "date": "2026-09-30",
+      "from": "2026-09-29T21:00:00Z",
+      "to": "2026-09-30T21:00:00Z",
+      "focused_seconds": 7800,
+      "sessions": 5,
+      "finished": [
+        {
+          "id": 5,
+          "title": "fix typo",
+          "tags": [],
+          "done_at": "2026-09-30T07:05:00Z"
+        },
+        {
+          "id": 4,
+          "title": "release v1.0.0",
+          "tags": [
+            "track"
+          ],
+          "done_at": "2026-09-30T13:40:00Z"
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "write the PRD",
+          "tags": [
+            "docs",
+            "Q1"
+          ],
+          "focused_seconds": 5100,
+          "sessions": 3,
+          "notes": [
+            {
+              "id": 1,
+              "session_id": 1,
+              "text": "left off at section 2; the retry numbers are still missing",
+              "created_at": "2026-09-30T07:00:00Z"
+            },
+            {
+              "id": 2,
+              "session_id": null,
+              "text": "stopped early for a meeting,\n  pick up at the risks list",
+              "created_at": "2026-09-30T11:00:00Z"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "review PR 91",
+          "tags": [
+            "work"
+          ],
+          "focused_seconds": 2700,
+          "sessions": 2,
+          "notes": []
+        },
+        {
+          "id": 3,
+          "title": "call   the\tbank",
+          "tags": [],
+          "focused_seconds": 0,
+          "sessions": 0,
+          "notes": [
+            {
+              "id": 3,
+              "session_id": null,
+              "text": "they close at 5",
+              "created_at": "2026-09-30T08:00:00Z"
+            }
+          ]
+        }
+      ],
+      "unfiled_notes": [
+        {
+          "id": 4,
+          "session_id": null,
+          "text": "ask whether the export needs a version field",
+          "created_at": "2026-09-30T09:00:00Z"
+        }
+      ]
+    }
+  ]
+}

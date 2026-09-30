@@ -1354,3 +1354,37 @@ func TestTheSplitLayoutShowsThreePanelsAndTheModeChoosesTheFocusedOne(t *testing
 	tm.waitFor(`╭─ Tasks`, wait)
 	tm.press("q")
 }
+
+func TestTheDailyReportShowsWhatWasFinishedAndNotedToday(t *testing.T) {
+	t.Parallel()
+	if now := time.Now(); now.Hour() == 23 && now.Minute() >= 58 || now.Hour() == 0 && now.Minute() < 2 {
+		t.Skip("the test would straddle midnight")
+	}
+	dir := t.TempDir()
+	seedTaskWithNote(t, dir, "read the docs", "chapter two")
+	runTrack(t, "--data-dir", dir, "note", "a stray idea")
+
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`read the docs`, wait)
+	tm.press("d")
+	tm.waitFor(`Marked done: read the docs`, wait)
+	tm.press("q")
+
+	code, stdout, stderr := runTrack(t, "--data-dir", dir, "report")
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		time.Now().Format("## Mon 2 Jan"),
+		"### Finished\n- read the docs\n",
+		"### Worked on\n- **read the docs**\n  - chapter two\n",
+		"### Notes\n- a stray idea\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the report lacks %q:\n%s", want, stdout)
+		}
+	}
+	if code, stdout, _ := runTrack(t, "--data-dir", dir, "report", "--format", "json", "--standup"); code != 0 || strings.Count(stdout, `"date"`) != 2 {
+		t.Errorf("standup json: exit %d\n%s", code, stdout)
+	}
+}

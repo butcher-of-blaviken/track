@@ -123,6 +123,9 @@ func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
 	return r, err
 }
 
+// Now is the Tracker's clock reading, so callers name "today" the way reports do.
+func (t *Tracker) Now() time.Time { return t.clock.Now() }
+
 // Day is the Report of the local calendar day that contains the given time, in
 // that time's location, which may be any day, not only today.
 func (t *Tracker) Day(ctx context.Context, day time.Time) (Report, error) {
