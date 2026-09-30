@@ -26,6 +26,14 @@ type keyMap struct {
 
 	// Help toggles the full help in the list, inbox, detail and report.
 	Help key.Binding
+	// Docs opens the documentation from the list, inbox, detail and report.
+	Docs key.Binding
+
+	// Docs view. It shares Up, Down, Help and Quit with the others, and scrolls
+	// with the viewport's own keys. DocsHits, DocsPage and DocsEnds stand for
+	// several keys in the footer and are never matched.
+	DocsFind, DocsNext, DocsPrev, DocsBack            key.Binding
+	DocsHits, DocsPage, DocsEnds, DocsTop, DocsBottom key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -57,6 +65,16 @@ func newKeyMap() keyMap {
 		Add:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Docs:       key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "docs")),
+		DocsFind:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		DocsNext:   key.NewBinding(key.WithKeys("n")),
+		DocsPrev:   key.NewBinding(key.WithKeys("N")),
+		DocsBack:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+		DocsHits:   key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n/N", "next/prev")),
+		DocsPage:   key.NewBinding(key.WithKeys("space", "b"), key.WithHelp("space/b", "page")),
+		DocsEnds:   key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
+		DocsTop:    key.NewBinding(key.WithKeys("g")),
+		DocsBottom: key.NewBinding(key.WithKeys("G")),
 		Report:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "report")),
 		ReportBack: key.NewBinding(key.WithKeys("esc", "r"), key.WithHelp("esc", "back")),
 		Period:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "period")),
@@ -103,7 +121,7 @@ func (k keyMap) listFull() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Archive, k.Reopen},
 		{k.Detail, k.Report, k.Inbox, k.Find, k.Pick, k.All},
-		{k.Move, k.Help, k.Quit},
+		{k.Move, k.Docs, k.Help, k.Quit},
 	}
 }
 
@@ -140,7 +158,7 @@ func (k keyMap) inboxHelp() []key.Binding {
 }
 
 func (k keyMap) inboxFull() [][]key.Binding {
-	return [][]key.Binding{{k.File, k.NewTask}, {k.Move, k.Back}, {k.Help, k.Quit}}
+	return [][]key.Binding{{k.File, k.NewTask}, {k.Move, k.Back}, {k.Docs, k.Help, k.Quit}}
 }
 
 // noteHelp is what the footer shows while the note prompt is open.
@@ -156,7 +174,7 @@ func (k keyMap) detailHelp() []key.Binding {
 }
 
 func (k keyMap) detailFull() [][]key.Binding {
-	return [][]key.Binding{{k.Start, k.Note}, {k.Scroll, k.DetailBack}, {k.Help, k.Quit}}
+	return [][]key.Binding{{k.Start, k.Note}, {k.Scroll, k.DetailBack}, {k.Docs, k.Help, k.Quit}}
 }
 
 // reportHelp is what the footer shows in the report, and reportFull its full help.
@@ -165,5 +183,20 @@ func (k keyMap) reportHelp() []key.Binding {
 }
 
 func (k keyMap) reportFull() [][]key.Binding {
-	return [][]key.Binding{{k.Period}, {k.Scroll, k.ReportBack}, {k.Help, k.Quit}}
+	return [][]key.Binding{{k.Period}, {k.Scroll, k.ReportBack}, {k.Docs, k.Help, k.Quit}}
+}
+
+// docsHelp is what the footer shows in the docs, and docsFull its full help.
+func (k keyMap) docsHelp() []key.Binding {
+	return []key.Binding{k.DocsFind, k.DocsHits, k.Scroll, k.DocsBack, k.Help, k.Quit}
+}
+
+func (k keyMap) docsFull() [][]key.Binding {
+	return [][]key.Binding{{k.DocsFind, k.DocsHits}, {k.Scroll, k.DocsPage, k.DocsEnds}, {k.DocsBack, k.Help, k.Quit}}
+}
+
+// docsFindHelp is what the footer shows while the docs search prompt is open.
+func (k keyMap) docsFindHelp() []key.Binding {
+	search := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "search"))
+	return []key.Binding{search, k.Cancel, k.ForceQuit}
 }

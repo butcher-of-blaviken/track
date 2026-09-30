@@ -49,6 +49,9 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	case len(opts.rest) == 0:
 		return report(runTUI(opts, getenv), stderr)
 	}
+	if opts.rest[0] == "docs" {
+		return printDocs(opts.rest[1:], stdout, stderr)
+	}
 	if opts.rest[0] == "version" {
 		return printVersion(opts.rest[1:], stdout, stderr)
 	}
@@ -57,7 +60,7 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	}
 	cmd, ok := findCommand(opts.rest[0])
 	if !ok {
-		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export, version)\nRun 'track --help' for usage.\n", opts.rest[0])
+		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export, docs, version)\nRun 'track --help' for usage.\n", opts.rest[0])
 		return exitUsage
 	}
 	return runCommand(cmd, opts.rest[1:], opts, getenv, stdout, stderr)
@@ -146,6 +149,7 @@ func usage(w io.Writer) {
   track add <text>          create a Task; ##tag words become Tags
   track note <text>         save a note to the inbox, to file onto a Task later
   track export              write everything as JSON or Markdown (-f, -o FILE)
+  track docs                print the documentation (in the app, press H)
   track version             print the version (also: track --version)
 
 Flags (they go before the subcommand: track --data-dir DIR add <text>):
@@ -214,7 +218,7 @@ func runTUI(opts options, getenv func(string) string) error {
 	}
 	defer func() { _ = a.close() }()
 
-	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration))).Run()
+	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithDocs(readmeText))).Run()
 	return err
 }
 

@@ -61,6 +61,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `ctrl+p` | pick a task to start |
 | `tab` | scope: Active tasks only, or every state |
 | `j`/`k` | move the cursor |
+| `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
 
@@ -72,6 +73,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `c` | create a new task from the note |
 | `j`/`k` | move the cursor |
 | `esc` | back |
+| `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
 
@@ -83,6 +85,7 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `n` | add a note to this task |
 | `j`/`k` | scroll |
 | `esc` | back |
+| `H` | docs: this README, inside the app |
 | `?` | help |
 | `q` | quit |
 
@@ -93,6 +96,22 @@ Keys are listed per screen; `?` shows the same list in the app. Letters that typ
 | `tab` | switch between today and this week |
 | `j`/`k` | scroll |
 | `esc` | back |
+| `H` | docs: this README, inside the app |
+| `?` | help |
+| `q` | quit |
+
+### The docs
+
+`H` opens this README inside the app, from the list, the inbox, a task's detail or the report. It is shown as plain text and wraps to the window. A session keeps running, and its countdown stays on screen, while you read.
+
+| Key | Action |
+| --- | --- |
+| `/` | search; every match is highlighted and the view jumps to the first |
+| `n`/`N` | next and previous match |
+| `j`/`k` | scroll |
+| `space`/`b` | page down and up |
+| `g`/`G` | top and bottom |
+| `esc` | clear the search, then go back |
 | `?` | help |
 | `q` | quit |
 
@@ -105,6 +124,7 @@ track add "write the design doc ##docs"   # create a task; ##tags become tags
 track note "ask about the retry logic"    # save an unfiled note to the inbox
 track export                              # everything as JSON on stdout
 track export --format markdown --output track.md
+track docs                                # this README, on stdout
 track version                             # also: track --version
 ```
 

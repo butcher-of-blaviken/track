@@ -11,5 +11,6 @@ func FullHelp() map[string][][]key.Binding {
 		"The inbox":       k.inboxFull(),
 		"A task's detail": k.detailFull(),
 		"The report":      k.reportFull(),
+		"The docs":        k.docsFull(),
 	}
 }
