@@ -584,3 +584,49 @@ func TestTabTogglesDoneAndArchivedTasksIntoTheList(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+// seedTaskWithNote creates an Active Task with a filed note, as another
+// process sharing the database would.
+func seedTaskWithNote(t *testing.T, dir, title, note string) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	if err := store.Update(context.Background(), func(tx core.Tx) error {
+		id, err := tx.CreateTask(core.Task{Title: title, State: core.StateActive, CreatedAt: time.Now()})
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateNote(core.Note{TaskID: id, Text: note, CreatedAt: time.Now()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSearchFindsATaskByItsNoteAndShowsTheMatchingLine(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTaskWithNote(t, dir, "write the PRD", "left off at the parser")
+	seedTaskWithNote(t, dir, "fix the build", "waiting on CI")
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`write the PRD`, wait)
+	if s := tm.screen(); strings.Contains(s, "left off at the parser") {
+		t.Errorf("a note is shown before searching:\n%s", s)
+	}
+
+	tm.press("/")
+	tm.waitFor(`Find:`, wait)
+	tm.typeText("parser")
+	tm.waitUntil("the note line under its Task", wait, func(s string) bool {
+		return strings.Contains(s, "write the PRD") && strings.Contains(s, "left off at the parser") && !strings.Contains(s, "fix the build")
+	})
+	tm.press("Escape")
+	tm.waitUntil("the picker to close", wait, func(s string) bool { return !strings.Contains(s, "Find:") })
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

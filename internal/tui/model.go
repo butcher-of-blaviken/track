@@ -39,6 +39,8 @@ type refreshMsg struct {
 	tasks []core.Task
 	// all is whether tasks holds every state or only the Active Tasks.
 	all bool
+	// notes is set only when the search needs them.
+	notes map[core.TaskID][]core.Note
 	// sessionTask is the Task of the latest session, running or ended.
 	sessionTask *core.Task
 	unfiled     int
@@ -127,6 +129,8 @@ type Model struct {
 	// open its own text is the query. pick is the open picker's purpose, and
 	// pickFrom the Task the cursor was on when it opened, for cancelling.
 	filter string
+	// notes are the filed notes by Task, read only while a search is active.
+	notes map[core.TaskID][]core.Note
 	// showAll includes Done and Archived Tasks in the list and the picker.
 	showAll  bool
 	pick     pickPurpose
@@ -240,7 +244,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote, all := m.tracker, m.resume != resumeOver, m.showAll
+	tracker, wantNote, all, wantNotes := m.tracker, m.resume != resumeOver, m.showAll, m.searching()
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -254,6 +258,11 @@ func (m Model) fetch() tea.Cmd {
 		}
 		if msg.tasks, msg.err = tracker.Tasks(ctx, states...); msg.err != nil {
 			return msg
+		}
+		if wantNotes {
+			if msg.notes, msg.err = tracker.NotesByTask(ctx); msg.err != nil {
+				return msg
+			}
 		}
 		// Newest first within each state, Active before Done before Archived.
 		slices.SortStableFunc(msg.tasks, func(a, b core.Task) int { return int(a.State) - int(b.State) })
@@ -339,6 +348,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
+			m.notes = nil
+			if m.searching() {
+				m.notes = msg.notes
+			}
 			if msg.all == m.showAll { // one fetched before a toggle carries the old scope
 				m.tasks = msg.tasks
 			}
@@ -506,8 +519,11 @@ func (m Model) rows() []core.TaskMatch {
 	if m.mode == modePicker {
 		query = m.input.Value()
 	}
-	return core.SearchTasks(query, m.tasks)
+	return core.SearchTasks(query, m.tasks, m.notes)
 }
+
+// searching is whether a query is in play, so the notes are needed.
+func (m Model) searching() bool { return m.mode == modePicker || m.filter != "" }
 
 func (m Model) openPicker(purpose pickPurpose) (tea.Model, tea.Cmd) {
 	m.mode, m.pick, m.pickFrom, m.promptErr = modePicker, purpose, m.selected, ""
@@ -515,7 +531,7 @@ func (m Model) openPicker(purpose pickPurpose) (tea.Model, tea.Cmd) {
 	m.input.Placeholder = pickPlaceholders[purpose]
 	m.sizeInput()
 	m.homePicker()
-	return m, m.input.Focus()
+	return m, tea.Batch(m.input.Focus(), m.fetch())
 }
 
 // homePicker puts the highlight on the best match, as the query just changed.
@@ -697,19 +713,34 @@ func (m *Model) reselect() {
 }
 
 func (m *Model) scrollToCursor() {
-	m.top = clampTop(m.top, m.cursor, m.listRows(), len(m.rows()))
+	heights := rowHeights(m.rows())
+	if len(heights) == 0 {
+		m.top = 0
+		return
+	}
+	m.top = windowTop(heights, min(m.top, len(heights)-1), min(m.cursor, len(heights)-1), m.listRows())
 }
 
-// clampTop returns the first visible row so that the cursor row is inside a
-// window of rows rows over n items, moving the window as little as possible.
-func clampTop(top, cursor, rows, n int) int {
-	if cursor < top {
-		top = cursor
+// windowTop returns the first visible item so that the cursor item is inside a
+// window of rows lines over items of the given heights, moving the window as
+// little as possible and leaving no blank lines below the last item if it can be
+// helped. With every height 1 it is the plain scrolling window of rows items.
+func windowTop(heights []int, top, cursor, rows int) int {
+	span := func(from, to int) int {
+		n := 0
+		for _, h := range heights[from : to+1] {
+			n += h
+		}
+		return n
 	}
-	if cursor >= top+rows {
-		top = cursor - rows + 1
+	top = min(top, cursor)
+	for top < cursor && span(top, cursor) > rows {
+		top++
 	}
-	return max(min(top, n-rows), 0)
+	for top > 0 && span(top-1, len(heights)-1) <= rows {
+		top--
+	}
+	return top
 }
 
 func describe(err error) string {

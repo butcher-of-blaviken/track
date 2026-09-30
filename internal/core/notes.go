@@ -135,6 +135,21 @@ func (t *Tracker) UnfiledNotes(ctx context.Context) ([]Note, error) {
 	return t.notesWhere(ctx, func(n Note) bool { return n.TaskID == 0 })
 }
 
+// NotesByTask returns every filed note grouped by its Task, each Task's log
+// ordered by when its notes were written. Unfiled notes are left out. It reads
+// all notes once, unlike TaskNotes per Task.
+func (t *Tracker) NotesByTask(ctx context.Context) (map[TaskID][]Note, error) {
+	filed, err := t.notesWhere(ctx, func(n Note) bool { return n.TaskID != 0 })
+	if err != nil {
+		return nil, err
+	}
+	out := map[TaskID][]Note{}
+	for _, n := range filed {
+		out[n.TaskID] = append(out[n.TaskID], n)
+	}
+	return out, nil
+}
+
 func (t *Tracker) notesWhere(ctx context.Context, keep func(Note) bool) ([]Note, error) {
 	all, err := t.store.Notes(ctx)
 	if err != nil {
