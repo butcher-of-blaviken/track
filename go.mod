@@ -8,6 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/pressly/goose/v3 v3.28.0
+	github.com/sahilm/fuzzy v0.1.3
 	modernc.org/sqlite v1.60.1
 )
 
