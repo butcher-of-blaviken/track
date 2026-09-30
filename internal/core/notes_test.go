@@ -285,3 +285,76 @@ func ids(notes []core.Note) []core.NoteID {
 	}
 	return out
 }
+
+func TestCreateTaskFromNote_MakesAnActiveTaskFromTheTextAndFilesTheNote(t *testing.T) {
+	r := newRig(t)
+	r.clock.Advance(time.Hour)
+	note, err := r.tracker.AddUnfiledNote(ctx, "check the retry logic ##backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clock.Advance(time.Hour)
+
+	task, err := r.tracker.CreateTaskFromNote(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("CreateTaskFromNote: %v", err)
+	}
+	if task.Title != "check the retry logic" || !slices.Equal(task.Tags, []string{"backend"}) || task.State != core.StateActive {
+		t.Errorf("task = %+v, want an Active \"check the retry logic\" tagged backend", task)
+	}
+	if !task.CreatedAt.Equal(r.clock.Now()) {
+		t.Errorf("task created at %v, want now (%v)", task.CreatedAt, r.clock.Now())
+	}
+
+	log, err := r.tracker.TaskNotes(ctx, task.ID)
+	if err != nil || len(log) != 1 {
+		t.Fatalf("log = %+v, %v; want the one note", log, err)
+	}
+	if log[0].ID != note.ID || log[0].Text != note.Text || !log[0].CreatedAt.Equal(note.CreatedAt) {
+		t.Errorf("filed note = %+v, want the original %+v with its timestamp", log[0], note)
+	}
+	if n, _ := r.tracker.UnfiledNoteCount(ctx); n != 0 {
+		t.Errorf("%d unfiled notes left, want 0", n)
+	}
+}
+
+func TestCreateTaskFromNote_ATagsOnlyNoteChangesNothing(t *testing.T) {
+	r := newRig(t)
+	note, _ := r.tracker.AddUnfiledNote(ctx, "##idea")
+	if _, err := r.tracker.CreateTaskFromNote(ctx, note.ID); !errors.Is(err, core.ErrEmptyTitle) {
+		t.Fatalf("err = %v, want ErrEmptyTitle", err)
+	}
+	if n, _ := r.tracker.UnfiledNoteCount(ctx); n != 1 {
+		t.Errorf("%d unfiled notes, want the note still unfiled", n)
+	}
+	if tasks, _ := r.tracker.Tasks(ctx); len(tasks) != 0 {
+		t.Errorf("tasks = %+v, want none created", tasks)
+	}
+}
+
+func TestCreateTaskFromNote_RefusesAFiledOrUnknownNote(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, core.StateActive)
+	filed, _ := r.tracker.AddNote(ctx, task, "already on a task")
+
+	if _, err := r.tracker.CreateTaskFromNote(ctx, filed.ID); !errors.Is(err, core.ErrNoteAlreadyFiled) {
+		t.Errorf("filed note: err = %v, want ErrNoteAlreadyFiled", err)
+	}
+	if _, err := r.tracker.CreateTaskFromNote(ctx, 999); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("unknown note: err = %v, want ErrNotFound", err)
+	}
+	if tasks, _ := r.tracker.Tasks(ctx); len(tasks) != 1 {
+		t.Errorf("%d tasks, want only the original", len(tasks))
+	}
+}
+
+func TestFileNote_ToAnUnknownTaskIsNotFoundAndLeavesTheNoteUnfiled(t *testing.T) {
+	r := newRig(t)
+	note, _ := r.tracker.AddUnfiledNote(ctx, "orphan")
+	if _, err := r.tracker.FileNote(ctx, note.ID, 999); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+	if n, _ := r.tracker.UnfiledNoteCount(ctx); n != 1 {
+		t.Errorf("%d unfiled notes, want it still unfiled", n)
+	}
+}

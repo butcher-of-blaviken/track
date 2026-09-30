@@ -11,6 +11,12 @@ type keyMap struct {
 	Find, Pick key.Binding
 	// Done, Archive and Reopen change the state of the Task under the cursor.
 	Done, Archive, Reopen key.Binding
+	// Inbox opens the Unfiled notes, Note captures one.
+	Inbox, Note key.Binding
+
+	// Inbox view. It shares Up, Down and Quit with the list; Back also closes it
+	// with Inbox.
+	File, NewTask, Back key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -41,6 +47,11 @@ func newKeyMap() keyMap {
 		Stop:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
 		Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Inbox:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inbox")),
+		Note:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "note")),
+		File:    key.NewBinding(key.WithKeys("f", "enter"), key.WithHelp("enter", "file")),
+		NewTask: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "new task")),
+		Back:    key.NewBinding(key.WithKeys("esc", "i"), key.WithHelp("esc", "back")),
 		Done:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "done")),
 		Archive: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "archive")),
 		Reopen:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "reopen")),
@@ -67,7 +78,7 @@ func newKeyMap() keyMap {
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Done, k.Find, k.All, k.Move, k.Quit}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Find, k.All, k.Move, k.Quit}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -95,4 +106,15 @@ func (k keyMap) resumeHelp() []key.Binding {
 func (k keyMap) pickerHelp(accept string) []key.Binding {
 	enter := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", accept))
 	return []key.Binding{enter, k.PickMove, k.All, k.Cancel, k.ForceQuit}
+}
+
+// inboxHelp is what the footer shows in the inbox.
+func (k keyMap) inboxHelp() []key.Binding {
+	return []key.Binding{k.File, k.NewTask, k.Move, k.Back, k.Quit}
+}
+
+// noteHelp is what the footer shows while the note prompt is open.
+func (k keyMap) noteHelp() []key.Binding {
+	save := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save"))
+	return []key.Binding{save, k.Cancel, k.ForceQuit}
 }

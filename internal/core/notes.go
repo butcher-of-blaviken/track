@@ -122,6 +122,38 @@ func (t *Tracker) FileNote(ctx context.Context, noteID NoteID, taskID TaskID) (N
 	return note, err
 }
 
+// CreateTaskFromNote turns an Unfiled note into a new Active Task and files the
+// note onto it, in one step. The note's text is the Task's title, with ##tag
+// markers becoming Tags as in AddTask, so a note of only tags is refused with
+// ErrEmptyTitle. The note keeps the time it was written.
+func (t *Tracker) CreateTaskFromNote(ctx context.Context, noteID NoteID) (Task, error) {
+	var task Task
+	err := t.store.Update(ctx, func(tx Tx) error {
+		note, err := tx.Note(noteID)
+		if err != nil {
+			return err
+		}
+		if note.TaskID != 0 {
+			return ErrNoteAlreadyFiled
+		}
+		title, tags, err := ParseTaskText(note.Text)
+		if err != nil {
+			return err
+		}
+		id, err := tx.CreateTask(Task{Title: title, State: StateActive, Tags: tags, CreatedAt: t.clock.Now()})
+		if err != nil {
+			return err
+		}
+		note.TaskID = id
+		if err := tx.SaveNote(note); err != nil {
+			return err
+		}
+		task, err = tx.Task(id) // re-read: the store canonicalizes Tag casing
+		return err
+	})
+	return task, err
+}
+
 // TaskNotes returns a Task's log, ordered by when each note was written.
 func (t *Tracker) TaskNotes(ctx context.Context, taskID TaskID) ([]Note, error) {
 	if _, err := t.store.Task(ctx, taskID); err != nil {

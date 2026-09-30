@@ -19,13 +19,16 @@ const (
 	handoffLabel = "  Note: "
 	findLabel    = "  Find: "
 	startLabel   = "  Start: "
+	fileLabel    = "  File: "
 )
 
 // promptLabel is the text before the input on the open prompt's line.
 func (m Model) promptLabel() string {
 	switch {
-	case m.mode == modeHandoff:
+	case m.mode == modeHandoff, m.mode == modeNote:
 		return handoffLabel
+	case m.mode == modePicker && m.pick == pickFile:
+		return fileLabel
 	case m.mode == modePicker && m.pick == pickFilter:
 		return findLabel
 	case m.mode == modePicker:
@@ -44,13 +47,13 @@ func (m Model) View() tea.View {
 	// The footer's first line is blank; the hand-off prompt has a context line
 	// above the input.
 	promptRow := len(header) + len(list) + 1
-	if m.mode == modeHandoff {
+	if m.mode == modeHandoff || (m.mode == modePicker && m.pick == pickFile) {
 		promptRow++
 	}
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -82,7 +85,7 @@ func (m Model) header() []string {
 			lines = append(lines, "  Hand-off due")
 		}
 		if m.unfiled > 0 {
-			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d", m.unfiled))
+			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d (i to file)", m.unfiled))
 		}
 		if m.showAll {
 			lines = append(lines, "  Showing: all tasks")
@@ -112,6 +115,13 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
+	if m.mode == modeInbox {
+		lines := []string{""}
+		if m.notice != "" {
+			lines = append(lines, "  "+m.notice)
+		}
+		return append(lines, "  "+m.helpLine(m.keys.inboxHelp()))
+	}
 	if m.mode == modeResume {
 		lines := []string{"", "  Resume " + strconv.Quote(m.sessionTask.Title) + "?"}
 		if n := m.resumeNote; n != nil {
@@ -132,6 +142,12 @@ func (m Model) footer() []string {
 		if m.mode == modeHandoff {
 			lines = append(lines, m.handoffContext())
 			help = m.keys.handoffHelp()
+		}
+		if m.mode == modeNote {
+			help = m.keys.noteHelp()
+		}
+		if m.mode == modePicker && m.pick == pickFile {
+			lines = append(lines, "  Filing: "+strconv.Quote(m.fileNote.Text))
 		}
 		if m.mode == modePicker {
 			help = m.keys.pickerHelp(m.pickAccept())
@@ -199,6 +215,9 @@ func (m Model) helpLine(bindings []key.Binding) string {
 // listRows is how many Task rows fit between the header and footer.
 func (m Model) listRows() int {
 	if m.height <= 0 {
+		if m.mode == modeInbox {
+			return max(len(m.inbox), 1)
+		}
 		lines := 0
 		for _, h := range rowHeights(m.rows()) {
 			lines += h
@@ -211,6 +230,9 @@ func (m Model) listRows() int {
 func (m Model) listLines(rows int) []string {
 	if !m.loaded {
 		return nil
+	}
+	if m.mode == modeInbox {
+		return m.inboxLines(rows)
 	}
 	matches := m.rows()
 	if len(matches) == 0 {
@@ -238,6 +260,31 @@ func (m Model) listLines(rows int) []string {
 	return lines
 }
 
+// inboxLines is the Unfiled notes, oldest first, one per line.
+func (m Model) inboxLines(rows int) []string {
+	switch {
+	case !m.inboxLoaded:
+		return []string{"  Loading…"}
+	case len(m.inbox) == 0:
+		return []string{"  Inbox is empty."}
+	}
+	heights := make([]int, len(m.inbox))
+	for i := range heights {
+		heights[i] = 1
+	}
+	top := windowTop(heights, min(m.inboxTop, len(m.inbox)-1), min(m.inboxCursor, len(m.inbox)-1), rows)
+	lines := make([]string, 0, rows)
+	for i := top; i < len(m.inbox) && len(lines) < rows; i++ {
+		marker := "  "
+		if i == m.inboxCursor {
+			marker = "> "
+		}
+		n := m.inbox[i]
+		lines = append(lines, "  "+marker+n.Text+" ("+agoText(m.snap.At.Sub(n.CreatedAt))+")")
+	}
+	return lines
+}
+
 // rowHeights is how many lines each match takes: one, plus one for its note.
 func rowHeights(matches []core.TaskMatch) []int {
 	heights := make([]int, len(matches))
@@ -261,6 +308,8 @@ func (m Model) pickAccept() string {
 	switch {
 	case m.pick == pickFilter:
 		return "filter"
+	case m.pick == pickFile:
+		return "file"
 	case len(m.rows()) == 0 && strings.TrimSpace(m.input.Value()) != "":
 		return "create"
 	}

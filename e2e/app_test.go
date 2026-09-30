@@ -681,3 +681,86 @@ func TestMarkATaskDoneReopenItAndArchiveIt(t *testing.T) {
 		t.Errorf("stored state = %v, want Archived", got)
 	}
 }
+
+// storedNoteState returns where the note with this text is filed: its Task's
+// title, or "" if it is still unfiled.
+func storedNoteState(t *testing.T, dir, text string) (found bool, taskTitle string) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	ctx := context.Background()
+	notes, err := store.Notes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.Text != text {
+			continue
+		}
+		if n.TaskID == 0 {
+			return true, ""
+		}
+		task, err := store.Task(ctx, n.TaskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return true, task.Title
+	}
+	return false, ""
+}
+
+func TestCaptureNotesAndFileThemFromTheInbox(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTask(t, dir, "existing work", core.StateActive)
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`existing work`, wait)
+
+	// Capture one note, then turn it into a Task.
+	tm.press("n")
+	tm.waitFor(`Note:`, wait)
+	tm.typeText("check the retry logic")
+	tm.press("Enter")
+	tm.waitFor(`Unfiled notes: 1 \(i to file\)`, wait)
+	tm.press("i")
+	tm.waitFor(`check the retry logic`, wait)
+	tm.press("c")
+	tm.waitFor(`Created task: check the retry logic`, wait)
+	tm.waitFor(`Inbox is empty`, wait)
+	tm.press("Escape")
+	tm.waitUntil("the new Task on the list and no unfiled count", wait, func(s string) bool {
+		return strings.Contains(s, "existing work") && !strings.Contains(s, "Inbox is empty") && !strings.Contains(s, "Unfiled notes")
+	})
+
+	// Capture another and file it onto the existing Task through the picker.
+	tm.press("n")
+	tm.waitFor(`Note:`, wait)
+	tm.typeText("belongs to existing")
+	tm.press("Enter")
+	tm.waitFor(`Unfiled notes: 1`, wait)
+	tm.press("i")
+	tm.waitFor(`belongs to existing`, wait)
+	tm.press("f")
+	tm.waitFor(`Filing: "belongs to existing"`, wait)
+	tm.typeText("existing")
+	tm.press("Enter")
+	tm.waitFor(`Filed onto: existing work`, wait)
+	tm.press("Escape")
+	tm.waitUntil("the list without an unfiled count", wait, func(s string) bool {
+		return strings.Contains(s, "existing work") && !strings.Contains(s, "Inbox is empty") && !strings.Contains(s, "Unfiled notes")
+	})
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+
+	if found, title := storedNoteState(t, dir, "check the retry logic"); !found || title != "check the retry logic" {
+		t.Errorf("first note filed on %q (found %v), want its own new Task", title, found)
+	}
+	if found, title := storedNoteState(t, dir, "belongs to existing"); !found || title != "existing work" {
+		t.Errorf("second note filed on %q (found %v), want \"existing work\"", title, found)
+	}
+}
