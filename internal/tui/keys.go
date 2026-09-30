@@ -7,6 +7,8 @@ import "charm.land/bubbles/v2/key"
 type keyMap struct {
 	// Main list.
 	Up, Down, Start, Stop, Add, Quit key.Binding
+	// Find opens the picker as a filter, Pick opens it to choose a Task to start.
+	Find, Pick key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
 	Move key.Binding
 
@@ -21,6 +23,9 @@ type keyMap struct {
 
 	// Resume is the launch resume prompt's yes; its no is Decline.
 	Resume key.Binding
+
+	// Picker. PickMove stands for PickUp and PickDown together in the footer.
+	PickUp, PickDown, PickMove key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -32,6 +37,8 @@ func newKeyMap() keyMap {
 		Stop:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
 		Add:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:  key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Find:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find")),
+		Pick:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "pick")),
 
 		Submit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "add")),
 		Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -43,12 +50,16 @@ func newKeyMap() keyMap {
 		Confirm: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "start")),
 		Decline: key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n", "cancel")),
 		Resume:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "resume")),
+
+		PickUp:   key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("up", "up")),
+		PickDown: key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("down", "down")),
+		PickMove: key.NewBinding(key.WithKeys("up", "down", "ctrl+p", "ctrl+n"), key.WithHelp("↑/↓", "move")),
 	}
 }
 
 // listHelp is what the footer shows on the main list.
 func (k keyMap) listHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Move, k.Quit}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.Move, k.Quit}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -69,4 +80,11 @@ func (k keyMap) confirmBreakHelp() []key.Binding {
 // resumeHelp is what the footer shows while the resume prompt is open.
 func (k keyMap) resumeHelp() []key.Binding {
 	return []key.Binding{k.Resume, k.Decline, k.ForceQuit}
+}
+
+// pickerHelp is what the footer shows while the picker is open; accept is what
+// Enter does.
+func (k keyMap) pickerHelp(accept string) []key.Binding {
+	enter := key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", accept))
+	return []key.Binding{enter, k.PickMove, k.Cancel, k.ForceQuit}
 }
