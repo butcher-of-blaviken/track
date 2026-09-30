@@ -630,3 +630,54 @@ func TestSearchFindsATaskByItsNoteAndShowsTheMatchingLine(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+// storedTaskState reads a Task's state from the database, as another process would.
+func storedTaskState(t *testing.T, dir, title string) core.State {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	tasks, err := store.Tasks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		if task.Title == title {
+			return task.State
+		}
+	}
+	t.Fatalf("no task titled %q", title)
+	return 0
+}
+
+func TestMarkATaskDoneReopenItAndArchiveIt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTask(t, dir, "finish me", core.StateActive)
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`finish me`, wait)
+
+	tm.press("d")
+	tm.waitFor(`Marked done: finish me`, wait)
+	tm.waitUntil("the Task to leave the list", wait, func(s string) bool {
+		return !strings.Contains(s, "finish me (done)") && strings.Contains(s, "No tasks")
+	})
+
+	tm.press("Tab")
+	tm.waitFor(`finish me \(done\)`, wait)
+	tm.press("u")
+	tm.waitFor(`Reopened: finish me`, wait)
+	tm.waitUntil("the marker to go", wait, func(s string) bool { return !strings.Contains(s, "(done)") })
+
+	tm.press("D")
+	tm.waitFor(`finish me \(archived\)`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+	if got := storedTaskState(t, dir, "finish me"); got != core.StateArchived {
+		t.Errorf("stored state = %v, want Archived", got)
+	}
+}
