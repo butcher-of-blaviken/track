@@ -36,7 +36,10 @@ func TestStartsIdleOnAnIsolatedDataDirAndQuitsCleanly(t *testing.T) {
 
 // seedRunningSession creates a Task and starts a 30-minute session on it, as
 // another process sharing the same database would.
-func seedRunningSession(t *testing.T, dir string) {
+func seedRunningSession(t *testing.T, dir string) { seedRunningSessionOf(t, dir, 30*time.Minute) }
+
+// seedRunningSessionOf is seedRunningSession with a chosen planned duration.
+func seedRunningSessionOf(t *testing.T, dir string, planned time.Duration) {
 	t.Helper()
 	ctx := context.Background()
 	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
@@ -57,7 +60,7 @@ func seedRunningSession(t *testing.T, dir string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tracker.StartSession(ctx, task, 30*time.Minute, core.StartOptions{}); err != nil {
+	if _, err := tracker.StartSession(ctx, task, planned, core.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -441,5 +444,17 @@ func TestStartingDuringABreakAsksFirstAndRecordsTheOverride(t *testing.T) {
 	sessions := storedSessions(t, dir)
 	if len(sessions) != 2 || sessions[1].SkippedBreak <= 0 {
 		t.Errorf("stored sessions = %+v, want a second one that skipped some Break", sessions)
+	}
+}
+
+func TestASessionRecordedWithAnotherDurationShowsAMismatchNotice(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRunningSessionOf(t, dir, 45*time.Minute)
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`This session is 45m; the current setting is 30m`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
 	}
 }
