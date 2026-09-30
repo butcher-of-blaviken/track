@@ -914,8 +914,8 @@ func TestQuestionMarkTogglesTheFullHelpInEachView(t *testing.T) {
 	tm.press("l")
 	tm.waitFor(`Focused:`, wait)
 	tm.press("?")
-	tm.waitFor(`j/k\s+scroll`, wait)
-	tm.press("Escape") // closes the help first
+	tm.waitFor(`n {2,}note`, wait) // only the full help pads its columns; the short footer has "n note"
+	tm.press("Escape")             // closes the help first
 	tm.waitUntil("the help closed but still in the detail", wait, func(s string) bool {
 		return strings.Contains(s, "Focused:") && strings.Contains(s, "n note • j/k scroll")
 	})
@@ -924,5 +924,51 @@ func TestQuestionMarkTogglesTheFullHelpInEachView(t *testing.T) {
 	tm.press("q")
 	if status := tm.exitStatus(wait); status != 0 {
 		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func writeConfig(t *testing.T, text string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestTheConfigFileSetsTheFocusDuration(t *testing.T) {
+	t.Parallel()
+	cfg := writeConfig(t, "focus_duration = \"20m\"\n")
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--config", cfg)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "configured work", `configured work`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+(20:00|19:5\d)\s+configured work`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestABrokenConfigStopsTheAppWithAClearMessage(t *testing.T) {
+	t.Parallel()
+	cfg := writeConfig(t, "focus_duration = \"soon\"\n")
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--config", cfg)
+	if status := tm.exitStatus(wait); status == 0 {
+		t.Error("exit status = 0, want a failure")
+	}
+	s := tm.screen()
+	for _, want := range []string{"config", "focus_duration", "not a duration"} { // the path wraps in an 80-column pane
+		if !strings.Contains(s, want) {
+			t.Errorf("the message lacks %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestAMissingNamedConfigFileIsAnError(t *testing.T) {
+	t.Parallel()
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--config", filepath.Join(t.TempDir(), "nope.toml"))
+	if status := tm.exitStatus(wait); status == 0 {
+		t.Error("exit status = 0, want a failure")
 	}
 }

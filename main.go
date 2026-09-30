@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/butcher-of-blaviken/track/internal/clock"
+	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
 	"github.com/butcher-of-blaviken/track/internal/datadir"
 	"github.com/butcher-of-blaviken/track/internal/store/sqlite"
@@ -29,7 +30,13 @@ func main() {
 func run(args []string, getenv func(string) string) error {
 	fs := flag.NewFlagSet("track", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", "", "directory for Track's data (default: the platform data directory)")
+	configFile := fs.String("config", "", "config file to read (default: config.toml in the platform config directory, if present)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	settings, err := loadSettings(*configFile, getenv)
+	if err != nil {
 		return err
 	}
 
@@ -47,14 +54,28 @@ func run(args []string, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
-	// Defaults for now; the config file and flags arrive with the config tickets.
-	tracker, err := core.NewTracker(store, clk, core.BreakPolicy{Short: 10 * time.Minute, Long: 20 * time.Minute, LongEvery: 4})
+	tracker, err := newTracker(store, clk, settings)
 	if err != nil {
 		return err
 	}
 
-	_, err = tea.NewProgram(tui.New(tracker, tui.WithFocusDuration(30*time.Minute))).Run()
+	_, err = tea.NewProgram(tui.New(tracker, tui.WithFocusDuration(settings.FocusDuration))).Run()
 	return err
+}
+
+// loadSettings reads the config file over the defaults. A file named with
+// --config must exist; the default one is optional.
+func loadSettings(configFlag string, getenv func(string) string) (config.Settings, error) {
+	home, _ := os.UserHomeDir()
+	path, required := config.ResolveFrom(configFlag, config.Env{Getenv: getenv, GOOS: runtime.GOOS, Home: home})
+	return config.Load(path, required)
+}
+
+// newTracker builds the Tracker with the Break and bell policies the settings
+// describe.
+func newTracker(store core.Store, clk clock.Clock, s config.Settings) (*core.Tracker, error) {
+	policy := core.BreakPolicy{Short: s.BreakDuration, Long: s.LongBreakDuration, LongEvery: s.LongBreakInterval}
+	return core.NewTracker(store, clk, policy, core.WithBellPolicy(core.BellPolicy{Interval: s.BellInterval, Repeats: s.BellRepeats}))
 }
 
 // clockFromEnv returns the real clock, or, for headless test runs, a clock
