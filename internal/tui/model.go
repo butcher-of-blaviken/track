@@ -185,6 +185,11 @@ type Model struct {
 	help help.Model
 
 	bell ringState
+
+	// showHelp is whether the full help is open, in helpMode; leaving that mode
+	// closes it.
+	showHelp bool
+	helpMode mode
 }
 
 // mode is which prompt has the keyboard.
@@ -272,6 +277,7 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	footer := help.New()
 	footer.Styles.ShortKey, footer.Styles.ShortDesc = grey, grey
 	footer.Styles.ShortSeparator, footer.Styles.Ellipsis = grey, grey
+	footer.Styles.FullKey, footer.Styles.FullDesc, footer.Styles.FullSeparator = grey, grey, grey
 
 	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: footer}
 	for _, opt := range opts {
@@ -412,6 +418,15 @@ func (m Model) Init() tea.Cmd { return tea.Batch(m.fetch(), m.tick()) }
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok && nm.showHelp && nm.mode != nm.helpMode {
+		nm.showHelp = false // the view it was open in is gone
+		next = nm
+	}
+	return next, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TickMsg:
 		return m, tea.Batch(m.fetch(), m.tick())
@@ -577,6 +592,9 @@ func (m *Model) acknowledgeBell() {
 
 func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	if m.handleHelp(press) {
+		return m, nil
+	}
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
@@ -1056,6 +1074,9 @@ func (m *Model) moveInbox(delta int) {
 
 func (m Model) updateInbox(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	if m.handleHelp(press) {
+		return m, nil
+	}
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
@@ -1149,6 +1170,9 @@ func (m Model) inDetail() bool {
 
 func (m Model) updateDetail(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	if m.handleHelp(press) {
+		return m, nil
+	}
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
@@ -1191,6 +1215,9 @@ func (m Model) reportPeriod() *core.Period {
 }
 
 func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.handleHelp(press) {
+		return m, nil
+	}
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
@@ -1210,4 +1237,18 @@ func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // reportMaxTop is how far the report can scroll.
 func (m Model) reportMaxTop() int {
 	return max(len(m.reportBody())-max(m.listRows()-reportHeadLines, 1), 0)
+}
+
+// handleHelp toggles the full help on ?, and closes it on Esc before Esc does
+// anything else. It reports whether it used the key.
+func (m *Model) handleHelp(press tea.KeyPressMsg) bool {
+	switch {
+	case key.Matches(press, m.keys.Help):
+		m.showHelp, m.helpMode = !m.showHelp, m.mode
+		return true
+	case m.showHelp && key.Matches(press, m.keys.Cancel):
+		m.showHelp = false
+		return true
+	}
+	return false
 }

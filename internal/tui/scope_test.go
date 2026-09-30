@@ -148,7 +148,9 @@ func TestScope_AnInactiveTaskDoesNotAskAboutTheBreak(t *testing.T) {
 
 func TestScope_FooterShowsTheTabHint(t *testing.T) {
 	_, m := scopeRig(t)
-	wantScreen(t, "list footer", m, "tab")
+	m = press(m, keyHelp)
+	wantHints(t, "list help", m, "tab scope")
+	m = press(m, keyHelp)
 	m = press(m, keySlash)
 	wantScreen(t, "picker footer", m, "tab")
 }

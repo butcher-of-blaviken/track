@@ -886,3 +886,43 @@ func TestTheReportShowsTimePerTaskAndTagAndBreakOverrides(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+func TestQuestionMarkTogglesTheFullHelpInEachView(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTaskWithHistory(t, dir, "write the PRD", "left off")
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`Hand-off for`, wait)
+	skipHandoff(tm)
+	tm.waitFor(`Resume "write the PRD"`, wait)
+	tm.press("n")
+	tm.waitUntil("the resume prompt to close", wait, func(s string) bool { return !strings.Contains(s, "Resume") })
+
+	// The short footer is short; the full help lists the keys it leaves out.
+	tm.waitFor(`\? help`, wait)
+	if s := tm.screen(); strings.Contains(s, "archive") {
+		t.Errorf("the short footer lists the archive key:\n%s", s)
+	}
+	tm.press("?")
+	tm.waitFor(`D\s+archive`, wait)
+	tm.waitFor(`u\s+reopen`, wait)
+	tm.waitFor(`ctrl\+p\s+pick`, wait)
+	tm.press("?")
+	tm.waitUntil("the help to close", wait, func(s string) bool { return !strings.Contains(s, "archive") })
+
+	// Each view has its own keys in its help, and leaving the view closes it.
+	tm.press("l")
+	tm.waitFor(`Focused:`, wait)
+	tm.press("?")
+	tm.waitFor(`j/k\s+scroll`, wait)
+	tm.press("Escape") // closes the help first
+	tm.waitUntil("the help closed but still in the detail", wait, func(s string) bool {
+		return strings.Contains(s, "Focused:") && strings.Contains(s, "n note • j/k scroll")
+	})
+	tm.press("Escape")
+	tm.waitUntil("the list", wait, func(s string) bool { return !strings.Contains(s, "Focused:") })
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

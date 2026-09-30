@@ -23,6 +23,9 @@ type keyMap struct {
 
 	// Report view. Its Back is the detail's, plus r.
 	Report, ReportBack, Period key.Binding
+
+	// Help toggles the full help in the list, inbox, detail and report.
+	Help key.Binding
 	// All toggles between Active Tasks and every state, in the list and the picker.
 	All key.Binding
 	// Move stands for Up and Down together in the footer; it is never matched.
@@ -53,6 +56,7 @@ func newKeyMap() keyMap {
 		Stop:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
 		Add:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Report:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "report")),
 		ReportBack: key.NewBinding(key.WithKeys("esc", "r"), key.WithHelp("esc", "back")),
 		Period:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "period")),
@@ -88,10 +92,19 @@ func newKeyMap() keyMap {
 	}
 }
 
-// listHelp is what the footer shows on the main list.
+// listHelp is what the footer shows on the main list: the essentials only. The
+// rest is in the full help, listFull.
 func (k keyMap) listHelp() []key.Binding {
-	// The essentials come first, quit among them, so a narrow terminal cuts the extras.
-	return []key.Binding{k.Start, k.Stop, k.Add, k.Find, k.Move, k.Quit, k.Note, k.Done, k.Detail, k.Report, k.All}
+	return []key.Binding{k.Start, k.Stop, k.Add, k.Move, k.Help, k.Quit}
+}
+
+// listFull is the list's full help, one column per group.
+func (k keyMap) listFull() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Archive, k.Reopen},
+		{k.Detail, k.Report, k.Inbox, k.Find, k.Pick, k.All},
+		{k.Move, k.Help, k.Quit},
+	}
 }
 
 // promptHelp is what the footer shows while the add prompt is open.
@@ -121,9 +134,13 @@ func (k keyMap) pickerHelp(accept string) []key.Binding {
 	return []key.Binding{enter, k.PickMove, k.All, k.Cancel, k.ForceQuit}
 }
 
-// inboxHelp is what the footer shows in the inbox.
+// inboxHelp is what the footer shows in the inbox, and inboxFull its full help.
 func (k keyMap) inboxHelp() []key.Binding {
-	return []key.Binding{k.File, k.NewTask, k.Move, k.Back, k.Quit}
+	return []key.Binding{k.File, k.NewTask, k.Move, k.Back, k.Help, k.Quit}
+}
+
+func (k keyMap) inboxFull() [][]key.Binding {
+	return [][]key.Binding{{k.File, k.NewTask}, {k.Move, k.Back}, {k.Help, k.Quit}}
 }
 
 // noteHelp is what the footer shows while the note prompt is open.
@@ -132,12 +149,21 @@ func (k keyMap) noteHelp() []key.Binding {
 	return []key.Binding{save, k.Cancel, k.ForceQuit}
 }
 
-// detailHelp is what the footer shows in the Task detail view.
+// detailHelp is what the footer shows in the Task detail view, and detailFull
+// its full help.
 func (k keyMap) detailHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Note, k.Scroll, k.DetailBack, k.Quit}
+	return []key.Binding{k.Start, k.Note, k.Scroll, k.DetailBack, k.Help, k.Quit}
 }
 
-// reportHelp is what the footer shows in the report.
+func (k keyMap) detailFull() [][]key.Binding {
+	return [][]key.Binding{{k.Start, k.Note}, {k.Scroll, k.DetailBack}, {k.Help, k.Quit}}
+}
+
+// reportHelp is what the footer shows in the report, and reportFull its full help.
 func (k keyMap) reportHelp() []key.Binding {
-	return []key.Binding{k.Period, k.Scroll, k.ReportBack, k.Quit}
+	return []key.Binding{k.Period, k.Scroll, k.ReportBack, k.Help, k.Quit}
+}
+
+func (k keyMap) reportFull() [][]key.Binding {
+	return [][]key.Binding{{k.Period}, {k.Scroll, k.ReportBack}, {k.Help, k.Quit}}
 }
