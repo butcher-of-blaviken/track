@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ],
+      "cwd": "/Users/makram/go/src/github.com/butcher-of-blaviken/track",
+      "type": "stdio"
+    }
+  }
+}

@@ -199,7 +199,11 @@ func (m Model) helpLine(bindings []key.Binding) string {
 // listRows is how many Task rows fit between the header and footer.
 func (m Model) listRows() int {
 	if m.height <= 0 {
-		return max(len(m.rows()), 1)
+		lines := 0
+		for _, h := range rowHeights(m.rows()) {
+			lines += h
+		}
+		return max(lines, 1)
 	}
 	return max(m.height-len(m.header())-len(m.footer()), 1)
 }
@@ -219,17 +223,37 @@ func (m Model) listLines(rows int) []string {
 		}
 		return []string{"  No tasks yet. Press a to add one."}
 	}
-	top := clampTop(m.top, m.cursor, rows, len(matches))
-	end := min(top+rows, len(matches))
-	lines := make([]string, 0, end-top)
-	for i := top; i < end; i++ {
+	top := windowTop(rowHeights(matches), min(m.top, len(matches)-1), min(m.cursor, len(matches)-1), rows)
+	lines := make([]string, 0, rows)
+	for i := top; i < len(matches) && len(lines) < rows; i++ {
 		marker := "  "
 		if i == m.cursor {
 			marker = "> "
 		}
 		lines = append(lines, "  "+marker+matchText(matches[i]))
+		if matches[i].Note != nil && len(lines) < rows {
+			lines = append(lines, noteLine(matches[i], m.snap.At))
+		}
 	}
 	return lines
+}
+
+// rowHeights is how many lines each match takes: one, plus one for its note.
+func rowHeights(matches []core.TaskMatch) []int {
+	heights := make([]int, len(matches))
+	for i, tm := range matches {
+		heights[i] = 1
+		if tm.Note != nil {
+			heights[i] = 2
+		}
+	}
+	return heights
+}
+
+// noteLine is the line under a row whose match came from a note.
+func noteLine(tm core.TaskMatch, now time.Time) string {
+	n := tm.Note
+	return "      ↳ " + highlight(n.Note.Text, n.Runes) + " (" + agoText(now.Sub(n.Note.CreatedAt)) + ")"
 }
 
 // pickAccept is what Enter does in the open picker, for the footer.
