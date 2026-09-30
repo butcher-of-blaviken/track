@@ -284,7 +284,7 @@ func (m Model) listRows() int {
 			return max(m.docs.TotalLineCount(), 1)
 		}
 		if m.inDetail() {
-			return detailHeadLines + max(len(m.detail.Notes), 1)
+			return detailHeadLines + len(m.detailBody())
 		}
 		if m.mode == modeReport {
 			return reportHeadLines + max(len(m.reportBody()), 1)
@@ -336,8 +336,11 @@ func (m Model) listLines(rows int) []string {
 	return lines
 }
 
-// detailLines is the Task detail: the Task, its focused time and its note log,
-// newest first, scrolled by detailTop.
+// detailHistoryShown is how many of a Task's latest sessions the detail lists.
+const detailHistoryShown = 5
+
+// detailLines is the Task detail: the Task, its focused time, its state and when
+// it was created, then a scrolling body of its latest sessions and its note log.
 func (m Model) detailLines(rows int) []string {
 	if !m.detailLoaded {
 		return []string{"  " + m.th.muted.Render("Loading…")}
@@ -346,20 +349,60 @@ func (m Model) detailLines(rows int) []string {
 	lines := []string{
 		"  " + m.th.taskText(core.TaskMatch{Task: d.Task}, false),
 		"  " + m.th.muted.Render("Focused: ") + focusText(d.Focused, d.Sessions),
+		"  " + m.th.muted.Render("State: ") + d.Task.State.String() + "   " + m.th.muted.Render("Created: ") + stampText(d.Task.CreatedAt),
 		"",
-		"  " + m.th.accent.Render("Notes"),
 	}
-	if len(d.Notes) == 0 {
-		return append(lines, "  "+m.th.muted.Render("No notes yet. Press n to add one."))
-	}
+	body := m.detailBody()
 	avail := max(rows-detailHeadLines, 1)
-	top := min(m.detailTop, max(len(d.Notes)-avail, 0))
-	for i := top; i < len(d.Notes) && i < top+avail; i++ {
-		n := d.Notes[len(d.Notes)-1-i]
-		lines = append(lines, "  "+m.th.muted.Render(n.CreatedAt.Local().Format("2006-01-02 15:04"))+"  "+n.Text)
-	}
-	return lines
+	top := min(m.detailTop, max(len(body)-avail, 0))
+	return append(lines, body[top:min(top+avail, len(body))]...)
 }
+
+// detailBody is what scrolls under the detail's head: the latest sessions, newest
+// first, and the note log, newest first.
+func (m Model) detailBody() []string {
+	d := m.detail
+	var body []string
+	if len(d.History) > 0 {
+		body = append(body, "  "+m.th.accent.Render("Sessions"))
+		for _, s := range d.History[:min(len(d.History), detailHistoryShown)] {
+			body = append(body, "  "+m.th.muted.Render(stampText(s.StartedAt))+"  "+m.sessionText(s, d.At))
+		}
+		if more := len(d.History) - detailHistoryShown; more > 0 {
+			body = append(body, "  "+m.th.muted.Render(fmt.Sprintf("+%d earlier", more)))
+		}
+		body = append(body, "")
+	}
+	body = append(body, "  "+m.th.accent.Render("Notes"))
+	if len(d.Notes) == 0 {
+		return append(body, "  "+m.th.muted.Render("No notes yet. Press n to add one."))
+	}
+	for i := len(d.Notes) - 1; i >= 0; i-- {
+		n := d.Notes[i]
+		line := "  " + m.th.muted.Render(stampText(n.CreatedAt)) + "  "
+		if n.SessionID != 0 {
+			line += m.th.needsYou.Render("hand-off") + "  "
+		}
+		body = append(body, line+n.Text)
+	}
+	return body
+}
+
+// sessionText is a session's length and how it ended: "30m  completed", or how
+// much of the planned time it had when it was stopped or still has run.
+func (m Model) sessionText(s core.FocusSession, at time.Time) string {
+	planned, elapsed := minutesText(s.PlannedDuration), minutesText(s.Elapsed(at))
+	switch s.Outcome(at) {
+	case core.OutcomeCompleted:
+		return planned + "  " + m.th.rest.UnsetBold().Render("completed")
+	case core.OutcomeStoppedEarly:
+		return elapsed + " of " + planned + "  " + m.th.needsYou.Render("stopped early")
+	}
+	return elapsed + " of " + planned + "  " + m.th.focus.UnsetBold().Render("running")
+}
+
+// stampText is a time as the detail shows it, in the local zone.
+func stampText(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
 
 // reportHeadLines is the lines above the scrolling part of the report: the
 // title, the totals and a blank.

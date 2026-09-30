@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
@@ -13,6 +14,11 @@ type TaskDetail struct {
 	Focused time.Duration
 	// Sessions is how many Focus sessions the Task has had, running or not.
 	Sessions int
+	// History is those sessions, newest first, never nil. Ask each for its
+	// Outcome and Elapsed at At.
+	History []FocusSession
+	// At is the clock reading the detail was derived at.
+	At time.Time
 	// Notes is the Task's log, oldest first.
 	Notes []Note
 }
@@ -27,14 +33,16 @@ func (t *Tracker) TaskDetail(ctx context.Context, id TaskID) (TaskDetail, error)
 	if err != nil {
 		return TaskDetail{}, err
 	}
-	d := TaskDetail{Task: task}
 	now := t.clock.Now()
-	for _, s := range sessions {
+	d := TaskDetail{Task: task, At: now, History: []FocusSession{}}
+	for _, s := range sessions { // by ID ascending
 		if s.TaskID == id {
 			d.Focused += s.Elapsed(now)
 			d.Sessions++
+			d.History = append(d.History, s)
 		}
 	}
+	slices.Reverse(d.History)
 	if d.Notes, err = t.TaskNotes(ctx, id); err != nil {
 		return TaskDetail{}, err
 	}
