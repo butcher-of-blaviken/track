@@ -385,3 +385,54 @@ func TestFullCycleFromTheKeyboard(t *testing.T) {
 		t.Errorf("stored notes = %+v, want the one typed note, filed and linked to its session", notes)
 	}
 }
+
+// storedSessions reads the sessions in the database, as another process would.
+func storedSessions(t *testing.T, dir string) []core.FocusSession {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	sessions, err := store.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sessions
+}
+
+// TestStartingDuringABreakAsksFirstAndRecordsTheOverride declines once, then
+// confirms. The 10m Break lasts ~5s at 120x, so the keys go in without pauses.
+func TestStartingDuringABreakAsksFirstAndRecordsTheOverride(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, []string{"TRACK_TIME_SCALE=120"}, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "long haul", `long haul`)
+	tm.press("Enter")
+	tm.waitFor(`Break\s+\d+:\d\d`, 40*time.Second)
+	skipHandoff(tm)
+
+	// Declining keeps the Break.
+	tm.press("Enter")
+	tm.waitFor(`Start anyway`, wait)
+	tm.press("n")
+	tm.waitUntil("the confirmation to close", wait, func(s string) bool {
+		return !strings.Contains(s, "Start anyway") && seconds(s, "Break") >= 0
+	})
+
+	// Confirming starts a session.
+	tm.press("Enter")
+	tm.waitFor(`Start anyway`, wait)
+	tm.press("y")
+	tm.waitFor(`Focus\s+\d\d:\d\d\s+long haul`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+
+	sessions := storedSessions(t, dir)
+	if len(sessions) != 2 || sessions[1].SkippedBreak <= 0 {
+		t.Errorf("stored sessions = %+v, want a second one that skipped some Break", sessions)
+	}
+}

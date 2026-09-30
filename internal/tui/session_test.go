@@ -114,21 +114,6 @@ func TestStart_BlockedStartsShowANoticeAndCreateNothing(t *testing.T) {
 		}
 	})
 
-	t.Run("during a Break", func(t *testing.T) {
-		r := newRig(t)
-		r.addTask(t, "first")
-		m := booted(r.newModel())
-		m = press(m, keyS)
-		r.clock.Advance(34 * time.Minute) // 4m into the 10m Break
-		m = send(m, tui.TickMsg{})
-		m = press(m, keyEsc) // skip the hand-off prompt that opened, to reach the list
-		m = press(m, keyS)
-		wantScreen(t, "notice", m, "break is in progress", "06:00 left")
-		if n := len(r.storedSessions(t)); n != 1 {
-			t.Errorf("%d sessions stored, want only the first", n)
-		}
-	})
-
 	t.Run("stopping with nothing running", func(t *testing.T) {
 		m := booted(newRig(t).newModel())
 		m = press(m, keyX)

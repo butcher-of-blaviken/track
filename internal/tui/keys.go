@@ -15,6 +15,9 @@ type keyMap struct {
 
 	// Hand-off note prompt. It shares ForceQuit with the add prompt.
 	Save, Skip key.Binding
+
+	// Break-override confirmation. It shares ForceQuit too.
+	Confirm, Decline key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -33,6 +36,9 @@ func newKeyMap() keyMap {
 
 		Save: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save")),
 		Skip: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "skip")),
+
+		Confirm: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "start")),
+		Decline: key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n", "cancel")),
 	}
 }
 
@@ -49,4 +55,9 @@ func (k keyMap) promptHelp() []key.Binding {
 // handoffHelp is what the footer shows while the hand-off prompt is open.
 func (k keyMap) handoffHelp() []key.Binding {
 	return []key.Binding{k.Save, k.Skip, k.ForceQuit}
+}
+
+// confirmBreakHelp is what the footer shows while the Break confirmation is open.
+func (k keyMap) confirmBreakHelp() []key.Binding {
+	return []key.Binding{k.Confirm, k.Decline, k.ForceQuit}
 }
