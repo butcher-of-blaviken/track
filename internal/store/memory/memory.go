@@ -51,6 +51,10 @@ func New() *Store {
 
 func cloneTask(t core.Task) core.Task {
 	t.Tags = slices.Clone(t.Tags)
+	if t.DoneAt != nil {
+		done := *t.DoneAt
+		t.DoneAt = &done
+	}
 	return t
 }
 
@@ -155,7 +159,7 @@ func (x *tx) canonical(t core.Task) core.Task {
 		tags[i] = x.st.tags[key]
 	}
 	t.Tags = tags
-	return t
+	return cloneTask(t) // the store keeps its own copy of DoneAt
 }
 
 func (x *tx) Task(id core.TaskID) (core.Task, error) {

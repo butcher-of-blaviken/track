@@ -244,7 +244,7 @@ func (s *Store) Notes(ctx context.Context) ([]core.Note, error) {
 
 // Tasks implements core.Store.
 func (s *Store) Tasks(ctx context.Context) ([]core.Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, title, state, created_at FROM tasks ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, title, state, created_at, done_at FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -253,11 +253,12 @@ func (s *Store) Tasks(ctx context.Context) ([]core.Task, error) {
 	for rows.Next() {
 		var t core.Task
 		var nanos int64
-		if err := rows.Scan(&t.ID, &t.Title, &t.State, &nanos); err != nil {
+		var done sql.NullInt64
+		if err := rows.Scan(&t.ID, &t.Title, &t.State, &nanos, &done); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
-		t.CreatedAt = toTime(nanos)
+		t.CreatedAt, t.DoneAt = toTime(nanos), doneTime(done)
 		t.Tags = []string{}
 		byID[t.ID] = len(tasks)
 		tasks = append(tasks, t)
@@ -301,15 +302,16 @@ type queryer interface {
 func getTask(ctx context.Context, q queryer, id core.TaskID) (core.Task, error) {
 	var t core.Task
 	var nanos int64
-	err := q.QueryRowContext(ctx, `SELECT id, title, state, created_at FROM tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.Title, &t.State, &nanos)
+	var done sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT id, title, state, created_at, done_at FROM tasks WHERE id = ?`, id).
+		Scan(&t.ID, &t.Title, &t.State, &nanos, &done)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Task{}, core.ErrNotFound
 	}
 	if err != nil {
 		return core.Task{}, err
 	}
-	t.CreatedAt = toTime(nanos)
+	t.CreatedAt, t.DoneAt = toTime(nanos), doneTime(done)
 	if t.Tags, err = getTags(ctx, q, id); err != nil {
 		return core.Task{}, err
 	}
@@ -362,8 +364,8 @@ func (x *tx) Task(id core.TaskID) (core.Task, error) { return getTask(x.ctx, x.t
 
 func (x *tx) CreateTask(t core.Task) (core.TaskID, error) {
 	res, err := x.tx.ExecContext(x.ctx,
-		`INSERT INTO tasks (title, state, created_at) VALUES (?, ?, ?)`,
-		t.Title, int(t.State), t.CreatedAt.UnixNano())
+		`INSERT INTO tasks (title, state, created_at, done_at) VALUES (?, ?, ?, ?)`,
+		t.Title, int(t.State), t.CreatedAt.UnixNano(), doneNanos(t.DoneAt))
 	if err != nil {
 		return 0, err
 	}
@@ -376,8 +378,8 @@ func (x *tx) CreateTask(t core.Task) (core.TaskID, error) {
 }
 
 func (x *tx) SaveTask(t core.Task) error {
-	res, err := x.tx.ExecContext(x.ctx, `UPDATE tasks SET title = ?, state = ? WHERE id = ?`,
-		t.Title, int(t.State), t.ID)
+	res, err := x.tx.ExecContext(x.ctx, `UPDATE tasks SET title = ?, state = ?, done_at = ? WHERE id = ?`,
+		t.Title, int(t.State), doneNanos(t.DoneAt), t.ID)
 	if err != nil {
 		return err
 	}
@@ -529,4 +531,21 @@ func (x *tx) SaveNote(n core.Note) error {
 		return core.ErrNotFound
 	}
 	return nil
+}
+
+// doneTime is a Task's done_at column as a time, nil for NULL.
+func doneTime(n sql.NullInt64) *time.Time {
+	if !n.Valid {
+		return nil
+	}
+	t := toTime(n.Int64)
+	return &t
+}
+
+// doneNanos is a Task's DoneAt as the done_at column: NULL for none.
+func doneNanos(t *time.Time) sql.NullInt64 {
+	if t == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: t.UnixNano(), Valid: true}
 }

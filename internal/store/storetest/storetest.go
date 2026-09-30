@@ -24,6 +24,7 @@ func Run(t *testing.T, newStore func(t *testing.T) core.Store) {
 	}{
 		{"CreateThenReadRoundTrips", createThenReadRoundTrips},
 		{"SaveTaskPersistsChanges", saveTaskPersistsChanges},
+		{"DoneAtRoundTripsAndClears", doneAtRoundTripsAndClears},
 		{"MissingTaskIsNotFound", missingTaskIsNotFound},
 		{"TagsShareFirstUseCasing", tagsShareFirstUseCasing},
 		{"UpdateIsAtomic", updateIsAtomic},
@@ -586,4 +587,77 @@ func unfiledNoteCount(t *testing.T, s core.Store) {
 	if got := count(); got != 1 {
 		t.Errorf("count after filing one = %d, want 1", got)
 	}
+}
+
+// A Task's DoneAt round-trips through create, save and every read, and saving
+// it as nil clears it.
+func doneAtRoundTripsAndClears(t *testing.T, s core.Store) {
+	t.Helper()
+	ctx := context.Background()
+	done := time.Date(2026, 3, 2, 9, 55, 0, 0, time.UTC)
+	given := done // the store must not keep the caller's pointer
+	withDate := createTask(t, s, core.Task{Title: "finished", State: core.StateDone, CreatedAt: done.Add(-time.Hour), DoneAt: &given})
+	given = done.Add(99 * time.Hour)
+	without := createTask(t, s, core.Task{Title: "open", State: core.StateActive, CreatedAt: done.Add(-time.Hour)})
+
+	check := func(what string, got core.Task, want *time.Time) {
+		t.Helper()
+		switch {
+		case want == nil && got.DoneAt != nil:
+			t.Errorf("%s: DoneAt = %v, want none", what, got.DoneAt)
+		case want != nil && (got.DoneAt == nil || !got.DoneAt.Equal(*want)):
+			t.Errorf("%s: DoneAt = %v, want %v", what, got.DoneAt, want)
+		}
+	}
+	one, err := s.Task(ctx, withDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("Task", one, &done)
+	all, err := s.Tasks(ctx)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("Tasks = %+v, %v", all, err)
+	}
+	check("Tasks finished", all[0], &done)
+	check("Tasks open", all[1], nil)
+
+	// Changing the stored copy of a returned Task must not change the store's.
+	*one.DoneAt = done.Add(time.Hour)
+	again, _ := s.Task(ctx, withDate)
+	check("isolated from the caller's copy", again, &done)
+
+	later := done.Add(3 * time.Hour)
+	if err := s.Update(ctx, func(tx core.Tx) error {
+		task, err := tx.Task(withDate)
+		if err != nil {
+			return err
+		}
+		task.DoneAt = &later
+		if err := tx.SaveTask(task); err != nil {
+			return err
+		}
+		other, err := tx.Task(without)
+		if err != nil {
+			return err
+		}
+		other.State = core.StateDone
+		other.DoneAt = &done
+		return tx.SaveTask(other)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Task(ctx, withDate)
+	check("saved later date", got, &later)
+	got, _ = s.Task(ctx, without)
+	check("saved onto a task that had none", got, &done)
+
+	if err := s.Update(ctx, func(tx core.Tx) error {
+		task, _ := tx.Task(withDate)
+		task.State, task.DoneAt = core.StateActive, nil
+		return tx.SaveTask(task)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.Task(ctx, withDate)
+	check("cleared", got, nil)
 }
