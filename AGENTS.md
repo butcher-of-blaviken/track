@@ -20,6 +20,8 @@ A single ticket with no follow-up can still be a plain branch from `main` and a 
 
 Never commit directly to `main`.
 
+To cut a release (a tag plus a GitHub Release), follow `docs/RELEASING.md`. Only tag a `main` commit whose CI has passed, and only when asked: a tag is permanent.
+
 ## Commands
 
 - `make check`: all of the above in one go (run this before every push)

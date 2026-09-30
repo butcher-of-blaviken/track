@@ -192,7 +192,7 @@ make check   # gofmt, go vet, golangci-lint, tests, build
 make e2e     # tmux end-to-end tests of the real binary (needs tmux)
 ```
 
-`CONTEXT.md` defines the domain vocabulary and `AGENTS.md` describes the workflow and architecture rules.
+`CONTEXT.md` defines the domain vocabulary and `AGENTS.md` describes the workflow and architecture rules. `docs/RELEASING.md` describes how to cut a release.
 
 ## License
 
