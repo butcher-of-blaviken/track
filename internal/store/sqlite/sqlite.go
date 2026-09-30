@@ -77,7 +77,7 @@ func (s *Store) migrateWithRetry(ctx context.Context) error {
 	deadline := time.Now().Add(window)
 	for delay := 10 * time.Millisecond; ; delay = min(delay*2, 200*time.Millisecond) {
 		err := s.migrate(ctx)
-		if err == nil || !(isBusy(err) || isLostRace(err)) || time.Now().After(deadline) {
+		if err == nil || (!isBusy(err) && !isLostRace(err)) || time.Now().After(deadline) {
 			return err
 		}
 		select {
