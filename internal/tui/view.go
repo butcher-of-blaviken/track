@@ -53,7 +53,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && m.mode != modeReport && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -115,6 +115,9 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
+	if m.mode == modeReport {
+		return []string{"", "  " + m.helpLine(m.keys.reportHelp())}
+	}
 	if m.mode == modeDetail {
 		lines := []string{""}
 		if m.notice != "" {
@@ -228,6 +231,9 @@ func (m Model) listRows() int {
 		if m.inDetail() {
 			return detailHeadLines + max(len(m.detail.Notes), 1)
 		}
+		if m.mode == modeReport {
+			return reportHeadLines + max(len(m.reportBody()), 1)
+		}
 		lines := 0
 		for _, h := range rowHeights(m.rows()) {
 			lines += h
@@ -246,6 +252,9 @@ func (m Model) listLines(rows int) []string {
 	}
 	if m.inDetail() {
 		return m.detailLines(rows)
+	}
+	if m.mode == modeReport {
+		return m.reportLines(rows)
 	}
 	matches := m.rows()
 	if len(matches) == 0 {
@@ -296,6 +305,63 @@ func (m Model) detailLines(rows int) []string {
 		lines = append(lines, "  "+n.CreatedAt.Local().Format("2006-01-02 15:04")+"  "+n.Text)
 	}
 	return lines
+}
+
+// reportHeadLines is the lines above the scrolling part of the report: the
+// title, the totals and a blank.
+const reportHeadLines = 3
+
+// reportLines is the report: a title, the totals, and the per-Task and per-Tag
+// tables, the tables scrolled by reportTop.
+func (m Model) reportLines(rows int) []string {
+	if !m.reportLoaded {
+		return []string{"  Loading…"}
+	}
+	r := m.report
+	name, other := "Today", "This week"
+	if r.Period == core.PeriodWeek {
+		name, other = other, name
+	}
+	lines := []string{"  Report: " + name + "   (tab: " + other + ")"}
+	if r.Sessions == 0 {
+		when := "today"
+		if r.Period == core.PeriodWeek {
+			when = "this week"
+		}
+		lines = append(lines, fmt.Sprintf("  Break overrides: %d", r.Overrides), "", "  No focused time "+when+".")
+		return lines
+	}
+	lines = append(lines, "  Focused: "+focusText(r.Focused, r.Sessions)+"   Break overrides: "+fmt.Sprint(r.Overrides), "")
+	body := m.reportBody()
+	avail := max(rows-reportHeadLines, 1)
+	top := min(m.reportTop, max(len(body)-avail, 0))
+	return append(lines, body[top:min(top+avail, len(body))]...)
+}
+
+// reportBody is the report's tables, line by line.
+func (m Model) reportBody() []string {
+	r := m.report
+	if !m.reportLoaded || r.Sessions == 0 {
+		return nil
+	}
+	body := []string{"  By task"}
+	for _, tt := range r.Tasks {
+		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tt.Focused))+"  "+matchText(core.TaskMatch{Task: tt.Task}))
+	}
+	body = append(body, "", "  By tag")
+	for _, tag := range r.Tags {
+		label := "#" + tag.Tag
+		if tag.Untagged {
+			label = "(untagged)"
+		}
+		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tag.Focused))+"  "+label)
+	}
+	return body
+}
+
+// minutesText is a duration as "1h 25m", "25m" or "40s" (see focusText).
+func minutesText(d time.Duration) string {
+	return strings.TrimSuffix(focusText(d, 1), " over 1 session")
 }
 
 // focusText words a Task's total focused time: whole minutes from one minute up,

@@ -39,6 +39,8 @@ type refreshMsg struct {
 	tasks []core.Task
 	// all is whether tasks holds every state or only the Active Tasks.
 	all bool
+	// report is set only while the report is open.
+	report *core.Report
 	// detail is set only while the detail view is open.
 	detail *core.TaskDetail
 	// unfiledNotes is set only while the inbox or the file picker is open.
@@ -173,6 +175,12 @@ type Model struct {
 	detailLoaded bool
 	detailTop    int
 
+	// period is the report's window, and report what was last read for it.
+	period       core.Period
+	report       core.Report
+	reportLoaded bool
+	reportTop    int
+
 	keys keyMap
 	help help.Model
 
@@ -192,6 +200,7 @@ const (
 	modeInbox
 	modeNote
 	modeDetail
+	modeReport
 )
 
 // pickPurpose is what the open picker is for.
@@ -289,7 +298,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote, all, wantNotes, wantInbox, detailFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailFor
+	tracker, wantNote, all, wantNotes, wantInbox, detailFor, reportFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailFor, m.reportPeriod()
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -313,6 +322,13 @@ func (m Model) fetch() tea.Cmd {
 			if msg.unfiledNotes, msg.err = tracker.UnfiledNotes(ctx); msg.err != nil {
 				return msg
 			}
+		}
+		if reportFor != nil {
+			rep, err := tracker.Report(ctx, *reportFor)
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			msg.report = &rep
 		}
 		if detailFor != 0 {
 			d, err := tracker.TaskDetail(ctx, detailFor)
@@ -406,6 +422,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
 			m.notes = nil
+			if msg.report != nil && m.mode == modeReport && msg.report.Period == m.period {
+				m.report, m.reportLoaded = *msg.report, true
+			}
 			if msg.detail != nil && msg.detail.Task.ID == m.detailFor {
 				m.detail, m.detailLoaded = *msg.detail, true
 			}
@@ -501,6 +520,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNote(msg)
 		case modeDetail:
 			return m.updateDetail(msg)
+		case modeReport:
+			return m.updateReport(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -580,6 +601,9 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mode, m.detailFor, m.detailLoaded, m.detailTop = modeDetail, rows[min(m.cursor, len(rows)-1)].Task.ID, false, 0
+		return m, m.fetch()
+	case key.Matches(press, m.keys.Report):
+		m.mode, m.reportLoaded, m.reportTop = modeReport, false, 0
 		return m, m.fetch()
 	case key.Matches(press, m.keys.Inbox):
 		if m.unfiled == 0 {
@@ -1156,4 +1180,34 @@ const detailHeadLines = 4
 func (m Model) detailMaxTop() int {
 	avail := max(m.listRows()-detailHeadLines, 1)
 	return max(len(m.detail.Notes)-avail, 0)
+}
+
+// reportPeriod is the window to read while the report is open, nil otherwise.
+func (m Model) reportPeriod() *core.Period {
+	if m.mode != modeReport {
+		return nil
+	}
+	return &m.period
+}
+
+func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.ReportBack):
+		m.mode = modeList
+	case key.Matches(press, m.keys.Period):
+		m.period, m.reportLoaded, m.reportTop = 1-m.period, false, 0
+		return m, m.fetch()
+	case key.Matches(press, m.keys.Down):
+		m.reportTop = min(m.reportTop+1, m.reportMaxTop())
+	case key.Matches(press, m.keys.Up):
+		m.reportTop = max(m.reportTop-1, 0)
+	}
+	return m, nil
+}
+
+// reportMaxTop is how far the report can scroll.
+func (m Model) reportMaxTop() int {
+	return max(len(m.reportBody())-max(m.listRows()-reportHeadLines, 1), 0)
 }

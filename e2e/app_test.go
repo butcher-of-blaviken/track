@@ -824,3 +824,65 @@ func TestTheDetailViewShowsFocusedTimeAndTheLogAndTakesANote(t *testing.T) {
 		t.Errorf("note filed on %q (found %v), want \"write the PRD\"", title, found)
 	}
 }
+
+// seedRecentWork creates a Task with the given Tags and a session that started
+// minutes ago, as another process sharing the database would. override marks
+// the session as having skipped part of a Break.
+func seedRecentWork(t *testing.T, dir, title string, tags []string, override bool) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	started := time.Now().Add(-10 * time.Minute)
+	stopped := started.Add(5 * time.Minute)
+	var skipped time.Duration
+	if override {
+		skipped = 3 * time.Minute
+	}
+	if err := store.Update(context.Background(), func(tx core.Tx) error {
+		id, err := tx.CreateTask(core.Task{Title: title, State: core.StateActive, Tags: tags, CreatedAt: started})
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateSession(core.FocusSession{TaskID: id, StartedAt: started, PlannedDuration: 30 * time.Minute, StoppedAt: &stopped, BreakDuration: 10 * time.Minute, SkippedBreak: skipped})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheReportShowsTimePerTaskAndTagAndBreakOverrides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRecentWork(t, dir, "write the PRD", []string{"docs"}, true)
+	seedRecentWork(t, dir, "fix the build", nil, false)
+	tm := launch(t, nil, "--data-dir", dir)
+	// Both sessions stopped early, so hand-off prompts and the resume prompt come first.
+	tm.waitFor(`Hand-off for`, wait)
+	skipHandoff(tm)
+	tm.waitUntil("the resume prompt or the list", wait, func(s string) bool { return strings.Contains(s, "Resume") || strings.Contains(s, "r report") })
+	if strings.Contains(tm.screen(), "Resume") {
+		tm.press("n")
+		tm.waitUntil("the prompt to close", wait, func(s string) bool { return !strings.Contains(s, "Resume") })
+	}
+
+	tm.press("r")
+	tm.waitFor(`Report: Today`, wait)
+	tm.waitFor(`Focused: 10m over 2 sessions`, wait)
+	tm.waitFor(`Break overrides: 1`, wait)
+	tm.waitFor(`By task`, wait)
+	tm.waitFor(`By tag`, wait)
+	tm.waitFor(`#docs`, wait)
+	tm.waitFor(`\(untagged\)`, wait)
+
+	tm.press("Tab")
+	tm.waitFor(`Report: This week`, wait)
+	tm.press("Escape")
+	tm.waitUntil("the list", wait, func(s string) bool { return !strings.Contains(s, "Report:") })
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
