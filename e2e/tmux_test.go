@@ -112,6 +112,16 @@ func (tm *term) screen() string {
 	return string(out)
 }
 
+// styledScreen is the screen with its colours and attributes as escape codes
+// (tmux capture-pane -e), for tests of what the terminal was told to draw.
+func (tm *term) styledScreen() string {
+	out, err := tm.tmux("capture-pane", "-p", "-e", "-t", "app").Output()
+	if err != nil {
+		return "(no screen: " + err.Error() + ")"
+	}
+	return string(out)
+}
+
 // waitUntil polls the screen until ok returns true, and otherwise fails with
 // the last screen so a red test shows what the user would have seen.
 func (tm *term) waitUntil(what string, timeout time.Duration, ok func(screen string) bool) string {
