@@ -323,7 +323,7 @@ func skipHandoff(tm *term) {
 // TestFullCycleFromTheKeyboard is the whole product loop through the real
 // binary with nothing seeded: add a Task, focus, be told it is over, leave a
 // hand-off note, take the Break, start again, and find it all still there after
-// a restart. At 120x a 30m session takes ~15s and its 10m Break ~5s.
+// a restart that offers to resume. At 120x a 30m session takes ~15s and its 10m Break ~5s.
 func TestFullCycleFromTheKeyboard(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -381,6 +381,13 @@ func TestFullCycleFromTheKeyboard(t *testing.T) {
 	// Everything survives a restart: the Task with its tag, and just the one note.
 	again := launch(t, nil, "--data-dir", dir)
 	again.waitFor(`write the PRD\s+#docs`, wait)
+
+	// The restart offers to resume, with the note from the earlier session, and
+	// yes starts a session on that Task.
+	again.waitFor(`Resume "write the PRD`, wait)
+	again.waitFor(`Last note .*left off at the parser`, wait)
+	again.press("y")
+	again.waitFor(`Focus\s+\d\d:\d\d\s+write the PRD`, wait)
 	if notes := storedNotes(t, dir); len(notes) != 1 || notes[0].Text != "left off at the parser" || notes[0].TaskID == 0 || notes[0].SessionID == 0 {
 		t.Errorf("stored notes = %+v, want the one typed note, filed and linked to its session", notes)
 	}

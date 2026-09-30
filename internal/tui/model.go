@@ -38,7 +38,10 @@ type refreshMsg struct {
 	// sessionTask is the Task of the latest session, running or ended.
 	sessionTask *core.Task
 	unfiled     int
-	err         error
+	// lastNote is the newest note of sessionTask, or nil. It is read only until
+	// the resume prompt has been decided.
+	lastNote *core.Note
+	err      error
 }
 
 // sessionMsg carries the result of starting or stopping a session.
@@ -109,6 +112,11 @@ type Model struct {
 	// breakStart is the Task the open Break confirmation would start a session on.
 	breakStart core.TaskID
 
+	// resume is where the launch resume prompt is, and resumeNote the last
+	// note it shows. The Task it offers is sessionTask.
+	resume     resumeState
+	resumeNote *core.Note
+
 	keys keyMap
 	help help.Model
 
@@ -123,6 +131,20 @@ const (
 	modeAdd
 	modeHandoff
 	modeConfirmBreak
+	modeResume
+)
+
+// resumeState tracks the once-per-launch offer to resume the last Task.
+type resumeState int
+
+const (
+	// resumeUndecided is before the first snapshot has arrived.
+	resumeUndecided resumeState = iota
+	// resumeArmed means the app launched Idle after a session, so the offer is
+	// made as soon as the keyboard is free and no hand-off is due.
+	resumeArmed
+	// resumeOver means the offer was made or can no longer be made this run.
+	resumeOver
 )
 
 // bellID identifies one bell event: the end of a session, or of its Break.
@@ -186,7 +208,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker := m.tracker
+	tracker, wantNote := m.tracker, m.resume != resumeOver
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -206,6 +228,15 @@ func (m Model) fetch() tea.Cmd {
 				return refreshMsg{err: err}
 			}
 			msg.sessionTask = &task
+			if wantNote {
+				notes, err := tracker.TaskNotes(ctx, task.ID)
+				if err != nil {
+					return refreshMsg{err: err}
+				}
+				if len(notes) > 0 {
+					msg.lastNote = &notes[len(notes)-1]
+				}
+			}
 		}
 		return msg
 	}
@@ -271,7 +302,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.tasks, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.tasks, msg.sessionTask, msg.unfiled, true
 			m.reselect()
-			return m, tea.Batch(m.ring(), m.syncHandoff())
+			cmd := tea.Batch(m.ring(), m.syncHandoff())
+			m.syncResume(msg.lastNote)
+			return m, cmd
 		}
 		return m, nil
 	case sessionMsg:
@@ -311,6 +344,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateHandoff(msg)
 		case modeConfirmBreak:
 			return m.updateConfirmBreak(msg)
+		case modeResume:
+			return m.updateResume(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -420,6 +455,44 @@ func (m Model) updateHandoff(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	m.promptErr = ""
 	return m.forwardToPrompt(press)
+}
+
+// syncResume decides, on the first snapshot, whether to offer resuming the
+// last Task: only when the app launched Idle after a session. It then opens the
+// prompt once the keyboard is free and no hand-off is due, so the note saved
+// there is the one shown. Anything that makes the offer moot ends it for the run.
+func (m *Model) syncResume(lastNote *core.Note) {
+	if m.resume == resumeUndecided {
+		m.resume = resumeOver
+		if m.snap.Phase == core.PhaseIdle && m.snap.Session != nil {
+			m.resume = resumeArmed
+		}
+	}
+	if m.resume != resumeArmed || m.snap.HandoffPending {
+		return
+	}
+	if m.snap.Phase != core.PhaseIdle || m.sessionTask == nil || m.sessionTask.State != core.StateActive {
+		m.resume = resumeOver
+		return
+	}
+	if m.mode == modeList {
+		m.mode, m.resume, m.resumeNote = modeResume, resumeOver, lastNote
+	}
+}
+
+// updateResume handles the launch resume prompt, a yes/no question like the
+// Break confirmation.
+func (m Model) updateResume(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Resume):
+		m.mode = modeList
+		return m, m.start(m.sessionTask.ID, false)
+	case key.Matches(press, m.keys.Decline):
+		m.mode = modeList
+	}
+	return m, nil
 }
 
 // updateConfirmBreak handles the Break-override confirmation. It is a yes/no
