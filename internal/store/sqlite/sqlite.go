@@ -88,13 +88,16 @@ func (s *Store) migrateWithRetry(ctx context.Context) error {
 	}
 }
 
-// isLostRace reports that a migration failed because another process ran it
-// first: goose read the applied versions before that process committed, so it
-// tried to create what now exists. Trying again sees the new version and has
-// nothing left to do.
+// isLostRace reports that a migration failed with a plain SQL error, which is
+// what losing a race to another process looks like: goose read the applied
+// versions before that process committed, so it tried to create a table or
+// add a column that now exists (the message varies with the statement). Trying
+// again sees the new version and has nothing left to do. A migration that is
+// really broken fails the same way on every attempt, and is reported once the
+// window is over.
 func isLostRace(err error) bool {
 	var e *msqlite.Error
-	return errors.As(err, &e) && e.Code()&0xff == sqlite3.SQLITE_ERROR && strings.Contains(e.Error(), "already exists")
+	return errors.As(err, &e) && e.Code()&0xff == sqlite3.SQLITE_ERROR
 }
 
 func isBusy(err error) bool {
