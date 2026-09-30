@@ -6,12 +6,17 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) verbiage (`feat
 
 ## Workflow
 
-Work is tracked as GitHub issues (epics with linked tickets). For each ticket:
+Work is tracked as GitHub issues (epics with linked tickets). Prefer **stacked PRs**: one PR per ticket, each based on the one before it, so work continues without merging and syncing `main` between tickets. For each ticket:
 
-1. Branch from an up-to-date `main`, named `<type>/<issue-number>-<short-slug>` (e.g. `feat/9-task-model`).
+1. Name the branch `<type>/<issue-number>-<short-slug>` (e.g. `feat/9-task-model`). For the first ticket of a stack, branch from an up-to-date `main` with `gh stack init <branch>`. For each later ticket, run `gh stack add <branch>` from the top of the stack. A ticket that does not build on the open stack starts a new stack from `main`.
 2. Do the work, committing with Conventional Commits. Reference the ticket, using `Closes #N` in the final commit or the PR body.
-3. Run `make check` locally before pushing. It runs, in order: `gofmt` check, `go vet`, `golangci-lint`, `go test`, `go build`. Fix everything it reports; do not push a red check.
-4. Push the branch and open a PR against `main` with `gh pr create`, linking the ticket. CI runs the same checks.
+3. Run `make check` locally before pushing. It runs, in order: `gofmt` check, `go vet`, `golangci-lint`, `go test`, `go build`. Fix everything it reports; do not push a red check. Run `make e2e` too when touching `internal/tui` or `main.go`.
+4. Push and open the PR with `gh stack submit --auto --open`, then set a real title and body (linking the ticket) with `gh pr edit`, since `submit` generates them. CI runs the same checks on every PR in the stack. It can take ~20s to appear.
+5. Report the PR and wait for the go-ahead before merging. Merge with `gh stack merge <pr> --yes --squash`, which merges that PR and every unmerged PR below it, in order. Then `gh stack sync --prune` to bring the rest up to date.
+
+Always pass the non-interactive flags above: bare `gh stack` commands open prompts or a TUI and hang. The full command reference is in `.claude/skills/gh-stack/SKILL.md`. To change a lower layer, check it out, commit there, and run `gh stack rebase --upstack`.
+
+A single ticket with no follow-up can still be a plain branch from `main` and a `gh pr create` PR against `main`.
 
 Never commit directly to `main`.
 
