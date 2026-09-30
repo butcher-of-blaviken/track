@@ -395,7 +395,7 @@ func TestFooter_TruncatesToTheTerminalWidth(t *testing.T) {
 }
 
 func TestFooter_NeverCutsAHintInHalf(t *testing.T) {
-	hints := map[string]bool{"enter start": true, "x stop": true, "a add": true, "n note": true, "d done": true, "l open": true, "r report": true, "/ find": true, "tab scope": true, "j/k move": true, "q quit": true}
+	hints := map[string]bool{"enter start": true, "x stop": true, "a add": true, "j/k move": true, "? help": true, "q quit": true}
 	for width := 12; width <= 60; width++ {
 		m := booted(newRig(t).newModel())
 		m = send(m, tea.WindowSizeMsg{Width: width, Height: 12})

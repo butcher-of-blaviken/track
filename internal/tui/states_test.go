@@ -1,7 +1,6 @@
 package tui_test
 
 import (
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -172,10 +171,9 @@ func TestStates_NothingHappensOnAnEmptyList(t *testing.T) {
 	wantNoText(t, "empty list", m, "Marked")
 }
 
-func TestStates_FooterShowsDoneAndNothingOverflows(t *testing.T) {
+func TestStates_TheStateKeysAreInTheFullHelpNotTheShortFooter(t *testing.T) {
 	_, _, m := threeTasks(t)
-	wantScreen(t, "footer", m, "d done")
-	if strings.Contains(screen(m), "D archive") {
-		t.Errorf("the footer lists the archive key; only d is advertised:\n%s", screen(m))
-	}
+	wantNoHints(t, "short footer", m, "d done", "D archive", "u reopen")
+	m = press(m, keyHelp)
+	wantHints(t, "full help", m, "d done", "D archive", "u reopen")
 }

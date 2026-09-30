@@ -115,22 +115,15 @@ func (m Model) banner() string {
 }
 
 func (m Model) footer() []string {
-	if m.mode == modeReport {
-		return []string{"", "  " + m.helpLine(m.keys.reportHelp())}
-	}
-	if m.mode == modeDetail {
-		lines := []string{""}
-		if m.notice != "" {
-			lines = append(lines, "  "+m.notice)
-		}
-		return append(lines, "  "+m.helpLine(m.keys.detailHelp()))
-	}
-	if m.mode == modeInbox {
-		lines := []string{""}
-		if m.notice != "" {
-			lines = append(lines, "  "+m.notice)
-		}
-		return append(lines, "  "+m.helpLine(m.keys.inboxHelp()))
+	switch m.mode {
+	case modeReport:
+		return m.viewFooter("", m.keys.reportHelp(), m.keys.reportFull())
+	case modeDetail:
+		return m.viewFooter(m.notice, m.keys.detailHelp(), m.keys.detailFull())
+	case modeInbox:
+		return m.viewFooter(m.notice, m.keys.inboxHelp(), m.keys.inboxFull())
+	case modeList:
+		return m.viewFooter(m.notice, m.keys.listHelp(), m.keys.listFull())
 	}
 	if m.mode == modeResume {
 		lines := []string{"", "  Resume " + strconv.Quote(m.sessionTask.Title) + "?"}
@@ -146,33 +139,71 @@ func (m Model) footer() []string {
 			"  " + m.helpLine(m.keys.confirmBreakHelp()),
 		}
 	}
-	if m.mode != modeList {
-		lines := []string{""}
-		help := m.keys.promptHelp()
-		if m.mode == modeHandoff {
-			lines = append(lines, m.handoffContext())
-			help = m.keys.handoffHelp()
-		}
-		if m.mode == modeNote {
-			help = m.keys.noteHelp()
-		}
-		if m.mode == modePicker && m.pick == pickFile {
-			lines = append(lines, "  Filing: "+strconv.Quote(m.fileNote.Text))
-		}
-		if m.mode == modePicker {
-			help = m.keys.pickerHelp(m.pickAccept())
-		}
-		lines = append(lines, m.promptLabel()+m.input.View())
-		if m.promptErr != "" {
-			lines = append(lines, "  "+m.promptErr)
-		}
-		return append(lines, "  "+m.helpLine(help))
-	}
 	lines := []string{""}
-	if m.notice != "" {
-		lines = append(lines, "  "+m.notice)
+	help := m.keys.promptHelp()
+	if m.mode == modeHandoff {
+		lines = append(lines, m.handoffContext())
+		help = m.keys.handoffHelp()
 	}
-	return append(lines, "  "+m.helpLine(m.keys.listHelp()))
+	if m.mode == modeNote {
+		help = m.keys.noteHelp()
+	}
+	if m.mode == modePicker && m.pick == pickFile {
+		lines = append(lines, "  Filing: "+strconv.Quote(m.fileNote.Text))
+	}
+	if m.mode == modePicker {
+		help = m.keys.pickerHelp(m.pickAccept())
+	}
+	lines = append(lines, m.promptLabel()+m.input.View())
+	if m.promptErr != "" {
+		lines = append(lines, "  "+m.promptErr)
+	}
+	return append(lines, "  "+m.helpLine(help))
+}
+
+// viewFooter is the footer of a view with a full help: a blank line, the notice
+// if any, and either the short help line or, while the full help is open, its
+// columns.
+func (m Model) viewFooter(notice string, short []key.Binding, full [][]key.Binding) []string {
+	lines := []string{""}
+	if notice != "" {
+		lines = append(lines, "  "+notice)
+	}
+	if m.showHelp {
+		return append(lines, m.fullHelpLines(full, len(lines))...)
+	}
+	return append(lines, "  "+m.helpLine(short))
+}
+
+// fullHelpLines renders the help columns, dropping whole columns from the right
+// until they fit the width, and cutting lines so that the header, the lines
+// already in the footer and at least one list row still fit the height.
+func (m Model) fullHelpLines(groups [][]key.Binding, used int) []string {
+	render := func(n int) []string {
+		lines := strings.Split(m.help.FullHelpView(groups[:n]), "\n")
+		for i := range lines {
+			lines[i] = "  " + lines[i]
+		}
+		return lines
+	}
+	widest := func(lines []string) int {
+		w := 0
+		for _, line := range lines {
+			w = max(w, ansi.StringWidth(line))
+		}
+		return w
+	}
+	n := len(groups)
+	lines := render(n)
+	for n > 1 && m.width > 0 && widest(lines) > m.width {
+		n--
+		lines = render(n)
+	}
+	if m.height > 0 {
+		budget := max(m.height-len(m.header())-1-used, 1)
+		lines = lines[:min(len(lines), budget)]
+	}
+	return lines
 }
 
 // handoffContext names what the hand-off note is for: the Task and how long
