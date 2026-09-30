@@ -1100,3 +1100,42 @@ func TestSubcommandExitCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestExportWorksWhileTheAppIsRunningASession(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "write the PRD ##docs")
+	runTrack(t, "--data-dir", dir, "note", "check the retry logic")
+
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`write the PRD`, wait)
+	tm.press("s")
+	tm.waitFor(`29:5\d|30:00`, wait)
+
+	code, stdout, stderr := runTrack(t, "--data-dir", dir, "export")
+	if code != 0 {
+		t.Fatalf("export JSON: exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{`"title": "write the PRD"`, `"outcome": "running"`, `"text": "check the retry logic"`} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("JSON lacks %s:\n%s", want, stdout)
+		}
+	}
+
+	out := filepath.Join(t.TempDir(), "track.md")
+	if code, _, stderr := runTrack(t, "--data-dir", dir, "export", "--format", "markdown", "--output", out); code != 0 {
+		t.Fatalf("export Markdown: exit %d, stderr %q", code, stderr)
+	}
+	md, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## write the PRD", "Tags: #docs", "## Inbox", "> check the retry logic"} {
+		if !strings.Contains(string(md), want) {
+			t.Errorf("Markdown lacks %q:\n%s", want, md)
+		}
+	}
+
+	// The running app is undisturbed.
+	tm.waitFor(`29:\d\d|30:00`, wait)
+}

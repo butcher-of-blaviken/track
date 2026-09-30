@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "exported_at": "2026-03-02T17:00:00Z",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "write the PRD",
+      "state": "active",
+      "tags": [
+        "docs",
+        "Q1"
+      ],
+      "created_at": "2026-03-02T09:00:00Z",
+      "focused_seconds": 2520,
+      "sessions": [
+        {
+          "id": 1,
+          "started_at": "2026-03-02T09:05:00Z",
+          "outcome": "completed",
+          "planned_seconds": 1800,
+          "stopped_at": null,
+          "break_seconds": 300,
+          "long_break": false,
+          "skipped_break_seconds": 0,
+          "handoff_at": "2026-03-02T09:40:00Z"
+        },
+        {
+          "id": 2,
+          "started_at": "2026-03-02T10:00:00Z",
+          "outcome": "stopped_early",
+          "planned_seconds": 1800,
+          "stopped_at": "2026-03-02T10:12:00Z",
+          "break_seconds": 900,
+          "long_break": true,
+          "skipped_break_seconds": 120,
+          "handoff_at": null
+        }
+      ],
+      "notes": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "text": "left off at section 2",
+          "created_at": "2026-03-02T09:40:00Z"
+        },
+        {
+          "id": 2,
+          "session_id": null,
+          "text": "# not a heading\n---\n`code`",
+          "created_at": "2026-03-02T11:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "old thing",
+      "state": "done",
+      "tags": [],
+      "created_at": "2026-03-02T08:00:00Z",
+      "focused_seconds": 0,
+      "sessions": [],
+      "notes": []
+    },
+    {
+      "id": 3,
+      "title": "dropped",
+      "state": "archived",
+      "tags": [],
+      "created_at": "2026-03-02T08:30:00Z",
+      "focused_seconds": 0,
+      "sessions": [],
+      "notes": []
+    }
+  ],
+  "unfiled_notes": [
+    {
+      "id": 3,
+      "session_id": null,
+      "text": "call the bank",
+      "created_at": "2026-03-02T12:00:00Z"
+    }
+  ]
+}
