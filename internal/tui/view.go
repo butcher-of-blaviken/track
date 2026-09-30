@@ -126,7 +126,7 @@ func (m Model) footer() []string {
 	case modeDocs:
 		return m.viewFooter(m.docsStatus(), m.keys.docsHelp(), m.keys.docsFull())
 	case modeReport:
-		return m.viewFooter("", m.keys.reportHelp(), m.keys.reportFull())
+		return m.viewFooter(m.notice, m.keys.reportHelp(), m.keys.reportFull())
 	case modeDetail:
 		return m.viewFooter(m.notice, m.keys.detailHelp(), m.keys.detailFull())
 	case modeInbox:
@@ -423,23 +423,24 @@ func stampText(t time.Time) string { return t.Local().Format("2006-01-02 15:04")
 // title, the totals and a blank.
 const reportHeadLines = 3
 
-// reportLines is the report: a title, the totals, and the per-Task and per-Tag
-// tables, the tables scrolled by reportTop.
+// reportLines is the report: a title, the totals, and the tables, scrolled by
+// reportTop. A day's report, unlike the week's, also lists what was finished
+// and the notes written that day.
 func (m Model) reportLines(rows int) []string {
 	if !m.reportLoaded {
 		return []string{"  " + m.th.muted.Render("Loading…")}
 	}
 	r := m.report
-	name, other := "Today", "This week"
-	if r.Period == core.PeriodWeek {
-		name, other = other, name
+	name, other, when := "Today", "This week", "today"
+	switch {
+	case r.Period == core.PeriodWeek:
+		name, other, when = other, name, "this week"
+	case !m.reportDay.IsZero():
+		name = r.From.Format("Mon 2 Jan")
+		when = "on " + name
 	}
 	lines := []string{"  " + m.th.accent.Render("Report: "+name) + m.th.muted.Render("   (tab: "+other+")")}
-	if r.Sessions == 0 {
-		when := "today"
-		if r.Period == core.PeriodWeek {
-			when = "this week"
-		}
+	if r.Sessions == 0 && !m.reportHasExtras() {
 		lines = append(lines, "  "+m.th.muted.Render(fmt.Sprintf("Break overrides: %d", r.Overrides)), "", "  "+m.th.muted.Render("No focused time "+when+"."))
 		return lines
 	}
@@ -450,23 +451,73 @@ func (m Model) reportLines(rows int) []string {
 	return append(lines, body[top:min(top+avail, len(body))]...)
 }
 
+// reportHasExtras is whether a day's report has notes or finished tasks to show
+// beyond its focused time. The week's report does not list them.
+func (m Model) reportHasExtras() bool {
+	r := m.report
+	return r.Period == core.PeriodToday && len(r.Finished)+len(r.Notes)+len(r.Unfiled) > 0
+}
+
 // reportBody is the report's tables, line by line.
 func (m Model) reportBody() []string {
 	r := m.report
-	if !m.reportLoaded || r.Sessions == 0 {
+	if !m.reportLoaded || (r.Sessions == 0 && !m.reportHasExtras()) {
 		return nil
 	}
-	body := []string{"  " + m.th.accent.Render("By task")}
-	for _, tt := range r.Tasks {
-		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tt.Focused))+"  "+m.th.taskText(core.TaskMatch{Task: tt.Task}, false))
-	}
-	body = append(body, "", "  "+m.th.accent.Render("By tag"))
-	for _, tag := range r.Tags {
-		label := m.th.tag(tag.Tag).Render("#" + tag.Tag)
-		if tag.Untagged {
-			label = m.th.muted.Render("(untagged)")
+	extras := m.reportHasExtras()
+	var body []string
+	section := func(title string) {
+		if len(body) > 0 {
+			body = append(body, "")
 		}
-		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tag.Focused))+"  "+label)
+		body = append(body, "  "+m.th.accent.Render(title))
+	}
+	if extras && len(r.Finished) > 0 {
+		section("Finished")
+		for _, t := range r.Finished {
+			body = append(body, "    "+m.th.taskText(core.TaskMatch{Task: t}, false))
+		}
+	}
+	notes := map[core.TaskID][]core.Note{}
+	if extras {
+		for _, tn := range r.Notes {
+			notes[tn.Task.ID] = tn.Notes
+		}
+	}
+	noteRows := func(id core.TaskID) {
+		for _, n := range notes[id] {
+			body = append(body, "              "+n.Text)
+		}
+		delete(notes, id)
+	}
+	if len(r.Tasks) > 0 || len(notes) > 0 {
+		section("By task")
+		for _, tt := range r.Tasks {
+			body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tt.Focused))+"  "+m.th.taskText(core.TaskMatch{Task: tt.Task}, false))
+			noteRows(tt.Task.ID)
+		}
+		for _, tn := range r.Notes {
+			if _, left := notes[tn.Task.ID]; left && extras {
+				body = append(body, "    "+strings.Repeat(" ", 8)+"  "+m.th.taskText(core.TaskMatch{Task: tn.Task}, false))
+				noteRows(tn.Task.ID)
+			}
+		}
+	}
+	if extras && len(r.Unfiled) > 0 {
+		section("Notes")
+		for _, n := range r.Unfiled {
+			body = append(body, "    "+n.Text)
+		}
+	}
+	if len(r.Tags) > 0 {
+		section("By tag")
+		for _, tag := range r.Tags {
+			label := m.th.tag(tag.Tag).Render("#" + tag.Tag)
+			if tag.Untagged {
+				label = m.th.muted.Render("(untagged)")
+			}
+			body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tag.Focused))+"  "+label)
+		}
 	}
 	return body
 }

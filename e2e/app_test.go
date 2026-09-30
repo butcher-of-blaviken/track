@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"os/exec"
@@ -1387,4 +1388,46 @@ func TestTheDailyReportShowsWhatWasFinishedAndNotedToday(t *testing.T) {
 	if code, stdout, _ := runTrack(t, "--data-dir", dir, "report", "--format", "json", "--standup"); code != 0 || strings.Count(stdout, `"date"`) != 2 {
 		t.Errorf("standup json: exit %d\n%s", code, stdout)
 	}
+}
+
+func TestTheReportScreenStepsBackADayAndCopiesItsMarkdown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	y, m, d := time.Now().Date()
+	yesterday := time.Date(y, m, d-1, 10, 0, 0, 0, time.Local)
+	store, err := sqlite.Open(filepath.Join(dir, "track.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), func(tx core.Tx) error {
+		id, err := tx.CreateTask(core.Task{Title: "write the PRD", State: core.StateActive, CreatedAt: yesterday.Add(-time.Hour)})
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateNote(core.Note{TaskID: id, Text: "left off at section 2", CreatedAt: yesterday})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`write the PRD`, wait)
+	tm.record()
+	tm.press("r")
+	tm.waitFor(`Report: Today`, wait)
+	tm.press("[")
+	tm.waitFor(`Report: `+yesterday.Format("Mon 2 Jan")+`[\s\S]*left off at section 2`, wait)
+
+	tm.press("y")
+	tm.waitFor(`Sent to the clipboard`, wait)
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(
+		"## "+yesterday.Format("Mon 2 Jan")+"\n\n### Worked on\n- **write the PRD**\n  - left off at section 2\n"))
+	tm.waitUntil("the clipboard sequence reaches the terminal", wait, func(string) bool {
+		raw, _ := os.ReadFile(tm.raw)
+		return strings.Contains(string(raw), want)
+	})
+
+	tm.press("]")
+	tm.waitFor(`Report: Today`, wait)
 }

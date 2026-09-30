@@ -96,9 +96,13 @@ In a terminal at least 100 columns wide and 16 lines high, the list, the inbox a
 
 ### The report
 
+The report shows the day or the week by focused time per task and per tag. A day's report also lists the tasks you finished, and the notes you wrote that day under the tasks they belong to, with the unfiled ones under Notes. `[` and `]` step through earlier days; `y` copies the day shown as the same Markdown that `track report` writes (see [The daily report](#the-daily-report)). `y` asks the terminal to set the clipboard with an OSC 52 escape sequence, which most modern terminals honour, also over SSH; one that does not, or that has it switched off, ignores it, so Track can only say it sent the text, not that it arrived. Use `track report` to get the text another way.
+
 | Key | Action |
 | --- | --- |
 | `tab` | switch between today and this week |
+| `[`/`]` | show the day before, or the day after (up to today) |
+| `y` | copy the day shown as Markdown, for a standup update |
 | `j`/`k` | scroll |
 | `esc` | back |
 | `H` | docs: this README, inside the app |

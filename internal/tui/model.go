@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
+	"github.com/butcher-of-blaviken/track/internal/export"
 )
 
 const (
@@ -42,8 +44,11 @@ type refreshMsg struct {
 	tasks []core.Task
 	// all is whether tasks holds every state or only the Active Tasks.
 	all bool
-	// report is set only while the report is open.
-	report *core.Report
+	// report is set only while the report is open, with the period and the day
+	// (zero for "today") it was read for.
+	report       *core.Report
+	reportPeriod core.Period
+	reportDay    time.Time
 	// detail is set only while the detail view is open.
 	detail *core.TaskDetail
 	// unfiledNotes is set only while the inbox or the file picker is open.
@@ -218,7 +223,10 @@ type Model struct {
 	todayKey  todayKey
 
 	// period is the report's window, and report what was last read for it.
-	period       core.Period
+	period core.Period
+	// reportDay is the day the report shows when stepped away from today, at
+	// local midnight, and zero while it follows today.
+	reportDay    time.Time
 	report       core.Report
 	reportLoaded bool
 	reportTop    int
@@ -365,7 +373,7 @@ func defaultTick() tea.Cmd {
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
 	tracker, wantNote, all, wantNotes, wantInbox, detailFor, reportFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailWanted(), m.reportPeriod()
-	todayRead, todayKey := m.todayRead, m.todayKey
+	todayRead, todayKey, reportDay := m.todayRead, m.todayKey, m.reportDay
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -398,11 +406,17 @@ func (m Model) fetch() tea.Cmd {
 			}
 		}
 		if reportFor != nil {
-			rep, err := tracker.Report(ctx, *reportFor)
+			var rep core.Report
+			var err error
+			if reportDay.IsZero() || *reportFor == core.PeriodWeek {
+				rep, err = tracker.Report(ctx, *reportFor)
+			} else {
+				rep, err = tracker.Day(ctx, reportDay)
+			}
 			if err != nil {
 				return refreshMsg{err: err}
 			}
-			msg.report = &rep
+			msg.report, msg.reportPeriod, msg.reportDay = &rep, *reportFor, reportDay
 		}
 		if detailFor != 0 {
 			d, err := tracker.TaskDetail(ctx, detailFor)
@@ -522,7 +536,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.today, m.todayRead, m.todayKey = *msg.today, true, msg.todayKey
 			}
 			m.notes = nil
-			if msg.report != nil && m.mode == modeReport && msg.report.Period == m.period {
+			if msg.report != nil && m.mode == modeReport && msg.reportPeriod == m.period && msg.reportDay.Equal(m.reportDay) {
 				m.report, m.reportLoaded = *msg.report, true
 			}
 			if msg.detail != nil && msg.detail.Task.ID == m.detailWanted() {
@@ -718,7 +732,7 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.Docs):
 		return m.openDocs()
 	case key.Matches(press, m.keys.Report):
-		m.mode, m.reportLoaded, m.reportTop = modeReport, false, 0
+		m.mode, m.reportDay, m.reportLoaded, m.reportTop = modeReport, time.Time{}, false, 0
 		return m, m.fetch()
 	case key.Matches(press, m.keys.Inbox):
 		if m.unfiled == 0 {
@@ -1328,6 +1342,7 @@ func (m Model) reportPeriod() *core.Period {
 }
 
 func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.notice = ""
 	if m.handleHelp(press) {
 		return m, nil
 	}
@@ -1341,6 +1356,12 @@ func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.Period):
 		m.period, m.reportLoaded, m.reportTop = 1-m.period, false, 0
 		return m, m.fetch()
+	case key.Matches(press, m.keys.PrevDay):
+		return m.stepReportDay(-1)
+	case key.Matches(press, m.keys.NextDay):
+		return m.stepReportDay(1)
+	case key.Matches(press, m.keys.Copy):
+		return m.copyReport()
 	case key.Matches(press, m.keys.Down):
 		m.reportTop = min(m.reportTop+1, m.reportMaxTop())
 	case key.Matches(press, m.keys.Up):
@@ -1507,4 +1528,55 @@ func (m Model) docsStatus() string {
 		return "Search " + strconv.Quote(m.docsQuery) + ": " + strconv.Itoa(m.docsAt+1) + "/" + strconv.Itoa(m.docsHits)
 	}
 	return ""
+}
+
+// onePeriodNotice says why a day-only key did nothing in the week's report.
+const onePeriodNotice = "Press tab for a single day first."
+
+// stepReportDay moves the report a day back or forward, never past today. A
+// report stepped back to today follows today again.
+func (m Model) stepReportDay(delta int) (tea.Model, tea.Cmd) {
+	if m.period != core.PeriodToday {
+		m.notice = onePeriodNotice
+		return m, nil
+	}
+	y, mo, d := m.snap.At.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, m.snap.At.Location())
+	day := today
+	if !m.reportDay.IsZero() {
+		day = m.reportDay
+	}
+	if delta > 0 && !day.Before(today) {
+		m.notice = "That is today."
+		return m, nil
+	}
+	day = day.AddDate(0, 0, delta)
+	m.reportDay = day
+	if day.Equal(today) {
+		m.reportDay = time.Time{}
+	}
+	m.reportLoaded, m.reportTop = false, 0
+	return m, m.fetch()
+}
+
+// copyReport puts the Markdown of the day shown on the clipboard.
+func (m Model) copyReport() (tea.Model, tea.Cmd) {
+	r := m.report
+	switch {
+	case m.period != core.PeriodToday:
+		m.notice = onePeriodNotice
+	case !m.reportLoaded:
+		m.notice = "The report is still loading."
+	case r.Sessions == 0 && len(r.Finished)+len(r.Notes)+len(r.Unfiled) == 0:
+		m.notice = "Nothing to copy."
+	default:
+		var text bytes.Buffer
+		if err := export.ReportMarkdown(&text, []core.Report{r}); err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		m.notice = "Sent to the clipboard."
+		return m, tea.SetClipboard(text.String())
+	}
+	return m, nil
 }
