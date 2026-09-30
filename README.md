@@ -175,6 +175,16 @@ Track looks for the file at `$XDG_CONFIG_HOME/track/config.toml` if that is set 
 
 Everything is in one SQLite file, `track.db`, in `$XDG_DATA_HOME/track` if that is set to an absolute path, otherwise in `~/Library/Application Support/track` on macOS and `~/.local/share/track` elsewhere. Use `--data-dir DIR` to keep it somewhere else. `track export` takes your data out as JSON or Markdown, and it is safe to run while the app is open.
 
+## Compatibility
+
+Your data is yours, so within version 1 Track stays compatible with what you already have:
+
+- A newer Track always opens and upgrades a database an older one wrote. Going the other way does not work: an older Track refuses a database from a newer one and tells you to upgrade.
+- Config keys keep their names and meanings. New keys are optional. An unknown key is an error, so a config written for a newer Track will not load on an older one.
+- Subcommands and flags keep working, and the JSON export keeps every key it has (its `version` field is `1`); new ones may be added.
+
+If a break is ever unavoidable it will be a new major version, installed from a new path (`…/track/v2`), with a way to bring your data across. See `docs/adr/0003-backward-compatibility.md`.
+
 ## Development
 
 ```

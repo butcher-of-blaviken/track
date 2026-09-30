@@ -1,5 +1,7 @@
 /track
 /dist/
 *.db
+# Released-schema fixtures for the compatibility test.
+!internal/store/sqlite/testdata/*.db
 # Added by code-review-graph
 .code-review-graph/
