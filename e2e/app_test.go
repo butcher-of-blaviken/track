@@ -1139,3 +1139,28 @@ func TestExportWorksWhileTheAppIsRunningASession(t *testing.T) {
 	// The running app is undisturbed.
 	tm.waitFor(`29:\d\d|30:00`, wait)
 }
+
+func TestARunningAppPicksUpWhatTheCommandLineWritesOnItsNextTick(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`No tasks`, wait)
+
+	// No key is pressed from here on: only the app's own tick can show these.
+	if code, _, stderr := runTrack(t, "--data-dir", dir, "add", "written while open ##live"); code != 0 {
+		t.Fatalf("add: exit %d, stderr %q", code, stderr)
+	}
+	tm.waitFor(`written while open\s+#live`, wait)
+
+	for i := 1; i <= 2; i++ {
+		if code, _, stderr := runTrack(t, "--data-dir", dir, "note", "a note while open"); code != 0 {
+			t.Fatalf("note: exit %d, stderr %q", code, stderr)
+		}
+		tm.waitFor(`Unfiled notes: `+strconv.Itoa(i), wait)
+	}
+
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
