@@ -1174,3 +1174,29 @@ func TestVersionNamesTheBinaryAndItsVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestTheDocsOpenInTheAppWithHAndCanBeSearched(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "read the docs")
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`read the docs`, wait)
+
+	tm.press("H")
+	tm.waitFor(`# Track`, wait)
+	tm.press("/")
+	tm.typeText("fish")
+	tm.press("Enter")
+	tm.waitFor(`Search "fish": 1/\d+`, wait)
+	tm.press("n")
+	tm.waitFor(`Search "fish": 2/\d+`, wait)
+
+	tm.press("Escape") // clears the search
+	tm.waitUntil("the search cleared", wait, func(s string) bool { return !strings.Contains(s, `Search "fish"`) })
+	tm.press("Escape") // back to the list
+	tm.waitFor(`read the docs`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}

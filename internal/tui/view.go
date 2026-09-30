@@ -20,6 +20,7 @@ const (
 	findLabel    = "  Find: "
 	startLabel   = "  Start: "
 	fileLabel    = "  File: "
+	searchLabel  = "  Search: "
 )
 
 // promptLabel is the text before the input on the open prompt's line.
@@ -27,6 +28,8 @@ func (m Model) promptLabel() string {
 	switch {
 	case m.mode == modeHandoff, m.mode == modeNote:
 		return handoffLabel
+	case m.mode == modeDocsFind:
+		return searchLabel
 	case m.mode == modePicker && m.pick == pickFile:
 		return fileLabel
 	case m.mode == modePicker && m.pick == pickFilter:
@@ -53,7 +56,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
-	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && m.mode != modeReport && (m.height <= 0 || promptRow < m.height) {
+	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && m.mode != modeReport && m.mode != modeDocs && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())
 		if m.width > 0 {
@@ -116,6 +119,8 @@ func (m Model) banner() string {
 
 func (m Model) footer() []string {
 	switch m.mode {
+	case modeDocs:
+		return m.viewFooter(m.docsStatus(), m.keys.docsHelp(), m.keys.docsFull())
 	case modeReport:
 		return m.viewFooter("", m.keys.reportHelp(), m.keys.reportFull())
 	case modeDetail:
@@ -147,6 +152,9 @@ func (m Model) footer() []string {
 	}
 	if m.mode == modeNote {
 		help = m.keys.noteHelp()
+	}
+	if m.mode == modeDocsFind {
+		help = m.keys.docsFindHelp()
 	}
 	if m.mode == modePicker && m.pick == pickFile {
 		lines = append(lines, "  Filing: "+strconv.Quote(m.fileNote.Text))
@@ -259,6 +267,9 @@ func (m Model) listRows() int {
 		if m.mode == modeInbox {
 			return max(len(m.inbox), 1)
 		}
+		if m.inDocs() {
+			return max(m.docs.TotalLineCount(), 1)
+		}
 		if m.inDetail() {
 			return detailHeadLines + max(len(m.detail.Notes), 1)
 		}
@@ -280,6 +291,9 @@ func (m Model) listLines(rows int) []string {
 	}
 	if m.mode == modeInbox {
 		return m.inboxLines(rows)
+	}
+	if m.inDocs() {
+		return strings.Split(m.docs.View(), "\n")
 	}
 	if m.inDetail() {
 		return m.detailLines(rows)

@@ -284,3 +284,20 @@ func TestExport_AnEmptyDatabaseExportsEmptyLists(t *testing.T) {
 		t.Errorf("exit %d, stdout %q", code, stdout)
 	}
 }
+
+func TestDocs_PrintsTheREADMEThisBinaryCarries(t *testing.T) {
+	want, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := track(t, t.TempDir(), "docs")
+	if code != 0 || stderr != "" || stdout != string(want) {
+		t.Errorf("exit %d, stderr %q, %d bytes printed, want the %d bytes of README.md", code, stderr, len(stdout), len(want))
+	}
+}
+
+func TestDocs_TakesNoArguments(t *testing.T) {
+	if code, stdout, stderr := track(t, t.TempDir(), "docs", "now"); code != 2 || stdout != "" || stderr == "" {
+		t.Errorf("exit %d, stdout %d bytes, stderr %q", code, len(stdout), stderr)
+	}
+}

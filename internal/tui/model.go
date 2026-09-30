@@ -6,13 +6,16 @@ package tui
 import (
 	"context"
 	"errors"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -103,6 +106,11 @@ func WithFocusDuration(d time.Duration) Option {
 	return func(m *Model) { m.focusDuration = d }
 }
 
+// WithDocs sets the documentation the H key opens, shown as plain text.
+func WithDocs(text string) Option {
+	return func(m *Model) { m.docsText = text }
+}
+
 // Model is the Bubble Tea model for the main screen.
 type Model struct {
 	tracker *core.Tracker
@@ -181,6 +189,17 @@ type Model struct {
 	reportLoaded bool
 	reportTop    int
 
+	// docsText is the documentation, docs the viewport it is shown in while
+	// modeDocs or modeDocsFind is open, and docsBack the mode H was pressed in.
+	// docsQuery is the applied search; docsHits how many matches it has and
+	// docsAt which one is the current match.
+	docsText  string
+	docs      viewport.Model
+	docsBack  mode
+	docsQuery string
+	docsHits  int
+	docsAt    int
+
 	keys keyMap
 	help help.Model
 
@@ -206,6 +225,8 @@ const (
 	modeNote
 	modeDetail
 	modeReport
+	modeDocs
+	modeDocsFind
 )
 
 // pickPurpose is what the open picker is for.
@@ -423,6 +444,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm.showHelp = false // the view it was open in is gone
 		next = nm
 	}
+	if nm, ok := next.(Model); ok && nm.inDocs() {
+		nm.syncDocs() // the footer may have grown or shrunk, or the window changed
+		next = nm
+	}
 	return next, cmd
 }
 
@@ -537,6 +562,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDetail(msg)
 		case modeReport:
 			return m.updateReport(msg)
+		case modeDocs:
+			return m.updateDocs(msg)
+		case modeDocsFind:
+			return m.updateDocsFind(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -620,6 +649,8 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.mode, m.detailFor, m.detailLoaded, m.detailTop = modeDetail, rows[min(m.cursor, len(rows)-1)].Task.ID, false, 0
 		return m, m.fetch()
+	case key.Matches(press, m.keys.Docs):
+		return m.openDocs()
 	case key.Matches(press, m.keys.Report):
 		m.mode, m.reportLoaded, m.reportTop = modeReport, false, 0
 		return m, m.fetch()
@@ -1080,6 +1111,8 @@ func (m Model) updateInbox(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
+	case key.Matches(press, m.keys.Docs):
+		return m.openDocs()
 	case key.Matches(press, m.keys.Back):
 		m.mode, m.inbox, m.inboxLoaded = modeList, nil, false
 	case key.Matches(press, m.keys.Down):
@@ -1176,6 +1209,8 @@ func (m Model) updateDetail(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
+	case key.Matches(press, m.keys.Docs):
+		return m.openDocs()
 	case key.Matches(press, m.keys.DetailBack):
 		m.mode, m.detailFor = modeList, 0
 	case key.Matches(press, m.keys.Down):
@@ -1221,6 +1256,8 @@ func (m Model) updateReport(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(press, m.keys.Quit):
 		return m, tea.Quit
+	case key.Matches(press, m.keys.Docs):
+		return m.openDocs()
 	case key.Matches(press, m.keys.ReportBack):
 		m.mode = modeList
 	case key.Matches(press, m.keys.Period):
@@ -1251,4 +1288,145 @@ func (m *Model) handleHelp(press tea.KeyPressMsg) bool {
 		return true
 	}
 	return false
+}
+
+// inDocs is whether the docs are showing, including while their search prompt is open.
+func (m Model) inDocs() bool { return m.mode == modeDocs || m.mode == modeDocsFind }
+
+// openDocs shows the documentation over the view H was pressed in.
+func (m Model) openDocs() (tea.Model, tea.Cmd) {
+	if m.docsText == "" {
+		m.notice = "No documentation in this build."
+		return m, nil
+	}
+	m.docsBack, m.mode = m.mode, modeDocs
+	m.docsQuery, m.docsHits, m.docsAt = "", 0, 0
+	m.docs = viewport.New()
+	m.docs.SoftWrap = true
+	// The text wraps, so there is nothing to scroll sideways, and h and l are
+	// free for the views that use them.
+	m.docs.KeyMap.Left, m.docs.KeyMap.Right = key.NewBinding(), key.NewBinding()
+	m.docs.LeftGutterFunc = func(viewport.GutterContext) string { return "  " }
+	m.docs.HighlightStyle = lipgloss.NewStyle().Reverse(true)
+	m.docs.SelectedHighlightStyle = lipgloss.NewStyle().Reverse(true).Bold(true).Underline(true)
+	m.docs.SetContent(m.docsText)
+	m.syncDocs()
+	return m, nil
+}
+
+// syncDocs gives the viewport the room the screen leaves it.
+func (m *Model) syncDocs() {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	m.docs.SetWidth(width)
+	m.docs.SetHeight(m.listRows())
+}
+
+// closeDocs goes back to the view the docs were opened from, which reads again
+// what it shows.
+func (m Model) closeDocs() (tea.Model, tea.Cmd) {
+	m.mode = m.docsBack
+	return m, m.fetch()
+}
+
+func (m Model) updateDocs(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.notice = ""
+	if m.handleHelp(press) {
+		return m, nil
+	}
+	switch {
+	case key.Matches(press, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.DocsBack):
+		if m.docsQuery != "" {
+			m.searchDocs("")
+			return m, nil
+		}
+		return m.closeDocs()
+	case key.Matches(press, m.keys.DocsFind):
+		m.mode, m.promptErr = modeDocsFind, ""
+		m.input.Reset()
+		m.input.SetValue(m.docsQuery)
+		m.input.Placeholder = docsPlaceholder
+		m.sizeInput()
+		return m, m.input.Focus()
+	case key.Matches(press, m.keys.DocsNext):
+		m.stepDocsHit(1)
+	case key.Matches(press, m.keys.DocsPrev):
+		m.stepDocsHit(-1)
+	case key.Matches(press, m.keys.DocsTop):
+		m.docs.GotoTop()
+	case key.Matches(press, m.keys.DocsBottom):
+		m.docs.GotoBottom()
+	default:
+		m.docs, _ = m.docs.Update(press)
+	}
+	return m, nil
+}
+
+const docsPlaceholder = " text to find"
+
+func (m Model) updateDocsFind(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Cancel):
+		m.mode = modeDocs
+		m.input.Reset()
+		m.input.Blur()
+		return m, nil
+	case key.Matches(press, m.keys.Submit):
+		m.searchDocs(strings.TrimSpace(m.input.Value()))
+		m.mode = modeDocs
+		m.input.Reset()
+		m.input.Blur()
+		return m, nil
+	}
+	return m.forwardToPrompt(press)
+}
+
+// searchDocs highlights every match of query, ignoring case, and jumps to the
+// first. An empty query clears the search.
+func (m *Model) searchDocs(query string) {
+	m.docsQuery, m.docsHits, m.docsAt = query, 0, 0
+	m.docs.ClearHighlights()
+	m.docs.GotoTop()
+	if query == "" {
+		return
+	}
+	matches := regexp.MustCompile("(?i)"+regexp.QuoteMeta(query)).FindAllStringIndex(m.docs.GetContent(), -1)
+	m.docsHits = len(matches)
+	m.docs.SetHighlights(matches)
+}
+
+// stepDocsHit moves to the next (+1) or previous (-1) match, wrapping round.
+func (m *Model) stepDocsHit(delta int) {
+	if m.docsQuery == "" {
+		m.notice = "Press / to search."
+		return
+	}
+	if m.docsHits == 0 {
+		return
+	}
+	if delta > 0 {
+		m.docs.HighlightNext()
+	} else {
+		m.docs.HighlightPrevious()
+	}
+	m.docsAt = (m.docsAt + delta + m.docsHits) % m.docsHits
+}
+
+// docsStatus is the line above the docs footer: where the search stands.
+func (m Model) docsStatus() string {
+	switch {
+	case m.notice != "":
+		return m.notice
+	case m.docsQuery != "" && m.docsHits == 0:
+		return "No match for " + strconv.Quote(m.docsQuery)
+	case m.docsQuery != "":
+		return "Search " + strconv.Quote(m.docsQuery) + ": " + strconv.Itoa(m.docsAt+1) + "/" + strconv.Itoa(m.docsHits)
+	}
+	return ""
 }
