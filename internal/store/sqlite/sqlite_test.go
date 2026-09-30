@@ -338,3 +338,37 @@ func TestTwoHandles_ReadsDuringWritesNeverFailAndNeverGoBackwards(t *testing.T) 
 	}
 	wg.Wait()
 }
+
+// Two processes starting for the first time can open the same new database at
+// the same moment, e.g. `track add` while the app launches. Every one of them
+// must come up; none may fail because another got there first.
+func TestConcurrentFirstOpenNeverFails(t *testing.T) {
+	for round := 0; round < 40; round++ {
+		path := dbPath(t)
+		const openers = 6
+		errs := make(chan error, openers)
+		stores := make(chan *sqlite.Store, openers)
+		var wg sync.WaitGroup
+		for range openers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s, err := sqlite.Open(path)
+				if err != nil {
+					errs <- err
+					return
+				}
+				stores <- s
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		close(stores)
+		for s := range stores {
+			_ = s.Close()
+		}
+		for err := range errs {
+			t.Fatalf("round %d: concurrent first Open: %v", round, err)
+		}
+	}
+}
