@@ -62,12 +62,33 @@ const (
 	wordStartBonus = 20 // the match begins a word
 )
 
+// token is one whitespace-separated part of a query.
+type token struct {
+	text string
+	// tagOnly is set for a token written with a leading #, which matches Tags only.
+	tagOnly bool
+}
+
+// parseQuery splits query into tokens, dropping a leading # (or ##) from each
+// and any token that is nothing but #.
+func parseQuery(query string) []token {
+	var tokens []token
+	for _, field := range strings.Fields(query) {
+		text := strings.TrimLeft(field, "#")
+		if text != "" {
+			tokens = append(tokens, token{text: text, tagOnly: text != field})
+		}
+	}
+	return tokens
+}
+
 // Rank returns the Docs that match query, best first, breaking ties by input
 // order. The query is split on whitespace and every token must match some field
-// of the Doc; tokens may match different fields. An empty query returns every
-// Doc in input order with no matches.
+// of the Doc; tokens may match different fields. A token written with a leading
+// # matches Tags only. An empty query returns every Doc in input order with no
+// matches.
 func Rank(query string, docs []Doc) []Result {
-	tokens := strings.Fields(query)
+	tokens := parseQuery(query)
 	results := make([]Result, 0, len(docs))
 	for i, doc := range docs {
 		if len(tokens) == 0 {
@@ -91,7 +112,7 @@ type fieldText struct {
 	text   string
 }
 
-func rankDoc(tokens []string, doc Doc) (Result, bool) {
+func rankDoc(tokens []token, doc Doc) (Result, bool) {
 	texts := []fieldText{{FieldTitle, 0, titleOffset, doc.Title}}
 	for i, tag := range doc.Tags {
 		texts = append(texts, fieldText{FieldTag, i, tagOffset, tag})
@@ -101,10 +122,13 @@ func rankDoc(tokens []string, doc Doc) (Result, bool) {
 	}
 
 	var result Result
-	for _, token := range tokens {
+	for _, tok := range tokens {
 		best, bestRunes, found := 0, []int(nil), -1
 		for i, ft := range texts {
-			if score, runes, ok := scoreToken(token, ft); ok && (found < 0 || score > best) {
+			if tok.tagOnly && ft.field != FieldTag {
+				continue
+			}
+			if score, runes, ok := scoreToken(tok.text, ft); ok && (found < 0 || score > best) {
 				best, bestRunes, found = score, runes, i
 			}
 		}
