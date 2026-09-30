@@ -39,6 +39,8 @@ type refreshMsg struct {
 	tasks []core.Task
 	// all is whether tasks holds every state or only the Active Tasks.
 	all bool
+	// unfiledNotes is set only while the inbox or the file picker is open.
+	unfiledNotes []core.Note
 	// notes is set only when the search needs them.
 	notes map[core.TaskID][]core.Note
 	// sessionTask is the Task of the latest session, running or ended.
@@ -152,6 +154,16 @@ type Model struct {
 	pick     pickPurpose
 	pickFrom core.TaskID
 
+	// inbox is the Unfiled notes while the inbox or the file picker is open,
+	// oldest first, with the cursor tracked by note ID like the Task list's.
+	// fileNote is the note the file picker is for.
+	inbox       []core.Note
+	inboxLoaded bool
+	inboxSel    core.NoteID
+	inboxCursor int
+	inboxTop    int
+	fileNote    core.Note
+
 	keys keyMap
 	help help.Model
 
@@ -168,6 +180,8 @@ const (
 	modeConfirmBreak
 	modeResume
 	modePicker
+	modeInbox
+	modeNote
 )
 
 // pickPurpose is what the open picker is for.
@@ -178,12 +192,17 @@ const (
 	pickFilter pickPurpose = iota
 	// pickStart starts a session on the chosen Task, or on a new one.
 	pickStart
+	// pickFile files the inbox note being filed onto the chosen Task.
+	pickFile
 )
+
+const notePlaceholder = " a thought to file later"
 
 // pickPlaceholders are the picker's hints, by purpose.
 var pickPlaceholders = map[pickPurpose]string{
 	pickFilter: " type to narrow the list",
 	pickStart:  " pick a task to start, or type a new one",
+	pickFile:   " pick the task this note belongs to",
 }
 
 // resumeState tracks the once-per-launch offer to resume the last Task.
@@ -260,7 +279,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote, all, wantNotes := m.tracker, m.resume != resumeOver, m.showAll, m.searching()
+	tracker, wantNote, all, wantNotes, wantInbox := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen()
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -277,6 +296,11 @@ func (m Model) fetch() tea.Cmd {
 		}
 		if wantNotes {
 			if msg.notes, msg.err = tracker.NotesByTask(ctx); msg.err != nil {
+				return msg
+			}
+		}
+		if wantInbox {
+			if msg.unfiledNotes, msg.err = tracker.UnfiledNotes(ctx); msg.err != nil {
 				return msg
 			}
 		}
@@ -365,6 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
 			m.notes = nil
+			m.syncInbox(msg.unfiledNotes)
 			if m.searching() {
 				m.notes = msg.notes
 			}
@@ -382,6 +407,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = m.describeSession(msg.err)
 			return m, nil
 		}
+		return m, m.fetch()
+	case inboxMsg:
+		if msg.err != nil {
+			m.notice = describeInbox(msg.err)
+			return m, nil
+		}
+		m.notice = msg.notice
+		m.closePrompt()
+		m.mode = modeInbox
+		return m, m.fetch()
+	case noteMsg:
+		if msg.err != nil {
+			m.promptErr = describeNote(msg.err)
+			return m, nil
+		}
+		m.closePrompt()
+		m.notice = "Saved to the inbox."
 		return m, m.fetch()
 	case stateMsg:
 		if msg.err != nil {
@@ -429,6 +471,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateResume(msg)
 		case modePicker:
 			return m.updatePicker(msg)
+		case modeInbox:
+			return m.updateInbox(msg)
+		case modeNote:
+			return m.updateNote(msg)
 		}
 		return m.updateList(msg)
 	}
@@ -502,6 +548,19 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.All):
 		m.showAll = !m.showAll
 		return m, m.fetch()
+	case key.Matches(press, m.keys.Inbox):
+		if m.unfiled == 0 {
+			m.notice = "No unfiled notes."
+			return m, nil
+		}
+		m.mode, m.inbox, m.inboxLoaded = modeInbox, nil, false
+		return m, m.fetch()
+	case key.Matches(press, m.keys.Note):
+		m.mode, m.promptErr = modeNote, ""
+		m.input.Reset()
+		m.input.Placeholder = notePlaceholder
+		m.sizeInput()
+		return m, m.input.Focus()
 	case key.Matches(press, m.keys.Find):
 		return m.openPicker(pickFilter)
 	case key.Matches(press, m.keys.Pick):
@@ -647,6 +706,9 @@ func (m Model) updatePicker(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.Cancel):
 		m.selected = m.pickFrom
 		m.closePrompt()
+		if m.pick == pickFile {
+			m.mode = modeInbox
+		}
 		m.reselect()
 		return m, nil
 	case key.Matches(press, m.keys.All):
@@ -661,6 +723,8 @@ func (m Model) updatePicker(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(press, m.keys.Submit):
 		query := strings.TrimSpace(m.input.Value())
 		switch {
+		case len(rows) > 0 && m.pick == pickFile:
+			return m, m.file(m.fileNote.ID, rows[min(m.cursor, len(rows)-1)].Task)
 		case len(rows) > 0 && m.pick == pickFilter:
 			m.filter = query
 			m.selected = rows[min(m.cursor, len(rows)-1)].Task.ID
@@ -870,4 +934,144 @@ func (m Model) describeSession(err error) string {
 		return "That task is not active."
 	}
 	return err.Error()
+}
+
+// inboxMsg carries the result of filing or converting an inbox note.
+type inboxMsg struct {
+	notice string
+	err    error
+}
+
+// noteMsg carries the result of capturing an Unfiled note.
+type noteMsg struct{ err error }
+
+// inboxOpen is whether the Unfiled notes are needed: the inbox is showing, or
+// the picker is choosing a Task to file one onto.
+func (m Model) inboxOpen() bool {
+	return m.mode == modeInbox || (m.mode == modePicker && m.pick == pickFile)
+}
+
+// syncInbox takes the notes a refresh read, keeping the cursor on its note.
+func (m *Model) syncInbox(notes []core.Note) {
+	if !m.inboxOpen() {
+		m.inbox, m.inboxLoaded = nil, false
+		return
+	}
+	if notes == nil && !m.inboxLoaded && m.unfiled > 0 {
+		return // a refresh that started before the inbox opened
+	}
+	m.inbox, m.inboxLoaded = notes, true
+	for i, n := range m.inbox {
+		if n.ID == m.inboxSel {
+			m.inboxCursor = i
+			m.scrollInbox()
+			return
+		}
+	}
+	m.inboxCursor = min(max(m.inboxCursor, 0), max(len(m.inbox)-1, 0))
+	m.inboxSel = 0
+	if len(m.inbox) > 0 {
+		m.inboxSel = m.inbox[m.inboxCursor].ID
+	}
+	m.scrollInbox()
+}
+
+func (m *Model) scrollInbox() {
+	if len(m.inbox) == 0 {
+		m.inboxTop = 0
+		return
+	}
+	heights := make([]int, len(m.inbox))
+	for i := range heights {
+		heights[i] = 1
+	}
+	m.inboxTop = windowTop(heights, min(m.inboxTop, len(heights)-1), min(m.inboxCursor, len(heights)-1), m.listRows())
+}
+
+func (m *Model) moveInbox(delta int) {
+	if len(m.inbox) == 0 {
+		return
+	}
+	m.inboxCursor = min(max(m.inboxCursor+delta, 0), len(m.inbox)-1)
+	m.inboxSel = m.inbox[m.inboxCursor].ID
+	m.scrollInbox()
+}
+
+func (m Model) updateInbox(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.notice = ""
+	switch {
+	case key.Matches(press, m.keys.Quit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Back):
+		m.mode, m.inbox, m.inboxLoaded = modeList, nil, false
+	case key.Matches(press, m.keys.Down):
+		m.moveInbox(1)
+	case key.Matches(press, m.keys.Up):
+		m.moveInbox(-1)
+	case key.Matches(press, m.keys.NewTask):
+		if len(m.inbox) > 0 {
+			return m, m.createTask(m.inbox[min(m.inboxCursor, len(m.inbox)-1)].ID)
+		}
+	case key.Matches(press, m.keys.File):
+		if len(m.inbox) > 0 {
+			m.fileNote = m.inbox[min(m.inboxCursor, len(m.inbox)-1)]
+			return m.openPicker(pickFile)
+		}
+	}
+	return m, nil
+}
+
+// createTask turns an inbox note into a Task off the UI goroutine.
+func (m Model) createTask(note core.NoteID) tea.Cmd {
+	tracker := m.tracker
+	return func() tea.Msg {
+		task, err := tracker.CreateTaskFromNote(context.Background(), note)
+		return inboxMsg{notice: "Created task: " + task.Title, err: err}
+	}
+}
+
+// file files an inbox note onto a Task off the UI goroutine.
+func (m Model) file(note core.NoteID, task core.Task) tea.Cmd {
+	tracker := m.tracker
+	return func() tea.Msg {
+		_, err := tracker.FileNote(context.Background(), note, task.ID)
+		return inboxMsg{notice: "Filed onto: " + task.Title, err: err}
+	}
+}
+
+func (m Model) updateNote(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(press, m.keys.ForceQuit):
+		return m, tea.Quit
+	case key.Matches(press, m.keys.Cancel):
+		m.closePrompt()
+		return m, nil
+	case key.Matches(press, m.keys.Submit):
+		tracker, text := m.tracker, m.input.Value()
+		return m, func() tea.Msg {
+			_, err := tracker.AddUnfiledNote(context.Background(), text)
+			return noteMsg{err: err}
+		}
+	}
+	m.promptErr = ""
+	return m.forwardToPrompt(press)
+}
+
+// describeNote words the reasons an Unfiled note can be refused.
+func describeNote(err error) string {
+	if errors.Is(err, core.ErrEmptyNote) {
+		return "Write a note, or press esc to cancel"
+	}
+	return err.Error()
+}
+
+// describeInbox words the reasons filing or converting an inbox note can fail.
+func describeInbox(err error) string {
+	switch {
+	case errors.Is(err, core.ErrNoteAlreadyFiled):
+		return "That note was already filed."
+	case errors.Is(err, core.ErrNotFound):
+		return "That note or task no longer exists."
+	}
+	return describe(err)
 }
