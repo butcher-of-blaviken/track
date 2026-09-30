@@ -202,6 +202,7 @@ type Model struct {
 
 	keys keyMap
 	help help.Model
+	th   theme
 
 	bell ringState
 
@@ -284,23 +285,22 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.Prompt = ""
 	// The leading space is under the terminal's cursor, so no hint text is hidden.
 	input.Placeholder = addPlaceholder
-	// Typed text is plain, the hint is greyed out like a prompt (the same mid
-	// grey Bubbles uses, readable on light and dark terminals), and the
-	// terminal draws a steady cursor.
-	grey := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// Typed text is plain and the hint is faint, like the footer; the terminal
+	// draws a steady cursor.
+	th := newTheme()
 	styles := textinput.Styles{}
-	styles.Focused.Placeholder, styles.Blurred.Placeholder = grey, grey
+	styles.Focused.Placeholder, styles.Blurred.Placeholder = th.muted, th.muted
 	styles.Cursor.Blink = false
 	input.SetStyles(styles)
 	input.SetVirtualCursor(false)
 
-	// The footer is the same unobtrusive grey as the prompt's hint.
+	// The footer shows each key in the accent and what it does muted.
 	footer := help.New()
-	footer.Styles.ShortKey, footer.Styles.ShortDesc = grey, grey
-	footer.Styles.ShortSeparator, footer.Styles.Ellipsis = grey, grey
-	footer.Styles.FullKey, footer.Styles.FullDesc, footer.Styles.FullSeparator = grey, grey, grey
+	footer.Styles.ShortKey, footer.Styles.FullKey = th.accent, th.accent
+	footer.Styles.ShortDesc, footer.Styles.FullDesc = th.muted, th.muted
+	footer.Styles.ShortSeparator, footer.Styles.FullSeparator, footer.Styles.Ellipsis = th.muted, th.muted, th.muted
 
-	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: footer}
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: footer, th: th}
 	for _, opt := range opts {
 		opt(&m)
 	}
@@ -1308,7 +1308,7 @@ func (m Model) openDocs() (tea.Model, tea.Cmd) {
 	m.docs.KeyMap.Left, m.docs.KeyMap.Right = key.NewBinding(), key.NewBinding()
 	m.docs.LeftGutterFunc = func(viewport.GutterContext) string { return "  " }
 	m.docs.HighlightStyle = lipgloss.NewStyle().Reverse(true)
-	m.docs.SelectedHighlightStyle = lipgloss.NewStyle().Reverse(true).Bold(true).Underline(true)
+	m.docs.SelectedHighlightStyle = m.th.selected.Bold(true).Underline(true)
 	m.docs.SetContent(m.docsText)
 	m.syncDocs()
 	return m, nil

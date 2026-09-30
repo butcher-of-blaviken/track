@@ -2,7 +2,6 @@ package tui_test
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -203,15 +202,17 @@ func TestDocs_LettersAreTextInTheSearchPrompt(t *testing.T) {
 
 func TestDocs_MatchesAreHighlightedAndTheCurrentOneStandsOut(t *testing.T) {
 	m := press(newRig(t).docsModel(docsText()), keyShftH, keySlash)
+	if got := styleOf(t, m, "In fish an unquoted"); got.reverse {
+		t.Fatalf("text is highlighted before any search: %+v", got)
+	}
 	m = typeText(m, "fish")
 	m = press(m, keyEnter)
-	raw := m.View().Content
-	if !regexp.MustCompile(`\x1b\[[0-9;]*m[^\x1b]*fish`).MatchString(raw) {
-		t.Errorf("the match is not styled in:\n%q", raw)
+	if got := styleOf(t, m, "fish"); !got.reverse || !got.bold || !got.underline {
+		t.Errorf("the current match = %+v, want reverse, bold and underlined", got)
 	}
 	m = press(m, keyEsc)
-	if regexp.MustCompile(`\x1b\[[0-9;]*m[^\x1b]*fish`).MatchString(m.View().Content) {
-		t.Error("the highlight stayed after the search was cleared")
+	if got := styleOf(t, m, "fish"); got.reverse || got.bold {
+		t.Errorf("the highlight stayed after the search was cleared: %+v", got)
 	}
 }
 

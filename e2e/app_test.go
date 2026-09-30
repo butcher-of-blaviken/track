@@ -1200,3 +1200,98 @@ func TestTheDocsOpenInTheAppWithHAndCanBeSearched(t *testing.T) {
 		t.Errorf("exit status = %d, want 0", status)
 	}
 }
+
+var sgrSeq = regexp.MustCompile(`^\x1b\[([0-9;:]*)m`)
+
+// sgrParams splits the parameters of one SGR sequence.
+func sgrParams(seq string) []int {
+	var out []int
+	for _, p := range strings.FieldsFunc(seq, func(r rune) bool { return r == ';' || r == ':' }) {
+		n, _ := strconv.Atoi(p)
+		out = append(out, n)
+	}
+	return out
+}
+
+// sgrAt returns the SGR parameters in force on the first character of text in a
+// styled capture (tmux capture-pane -e), following resets the way a terminal does.
+func sgrAt(t *testing.T, styled, text string) map[int]bool {
+	t.Helper()
+	params := map[int]bool{}
+	for i := 0; i < len(styled); {
+		if m := sgrSeq.FindStringSubmatch(styled[i:]); m != nil {
+			nums := sgrParams(m[1])
+			if len(nums) == 0 {
+				params = map[int]bool{}
+			}
+			for _, n := range nums {
+				if n == 0 {
+					params = map[int]bool{}
+				} else {
+					params[n] = true
+				}
+			}
+			i += len(m[0])
+			continue
+		}
+		if strings.HasPrefix(styled[i:], text) {
+			return params
+		}
+		i++
+	}
+	t.Fatalf("%q is not on the styled screen:\n%q", text, styled)
+	return nil
+}
+
+func TestColoursReachARealTerminal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "read the docs ##reading")
+	runTrack(t, "--data-dir", dir, "note", "a loose thought")
+	tm := launch(t, nil, "--data-dir", dir)
+	tm.waitFor(`> read the docs`, wait)
+
+	styled := tm.styledScreen()
+	if p := sgrAt(t, styled, "> read the docs"); !p[7] || !p[34] {
+		t.Errorf("the selected row has SGR %v, want reverse (7) and blue (34):\n%q", p, styled)
+	}
+	if p := sgrAt(t, styled, "Unfiled notes"); !p[33] {
+		t.Errorf("the unfiled-notes line has SGR %v, want yellow (33)", p)
+	}
+	if p := sgrAt(t, styled, "Idle"); !p[2] {
+		t.Errorf("Idle has SGR %v, want faint (2)", p)
+	}
+
+	tm.press("s")
+	tm.waitFor(`Focus\s+\d\d:\d\d`, wait)
+	if p := sgrAt(t, tm.styledScreen(), "Focus"); !p[35] || !p[1] {
+		t.Errorf("Focus has SGR %v, want bold (1) magenta (35)", p)
+	}
+}
+
+func TestNoColorLeavesNoColourCodes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "read the docs ##reading")
+	runTrack(t, "--data-dir", dir, "note", "a loose thought")
+	tm := launch(t, []string{"NO_COLOR=1"}, "--data-dir", dir)
+	tm.waitFor(`> read the docs`, wait)
+	tm.press("s")
+	tm.waitFor(`Focus\s+\d\d:\d\d`, wait)
+
+	styled := tm.styledScreen()
+	for _, seq := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(styled, -1) {
+		for _, n := range sgrParams(seq[1]) {
+			if (n >= 30 && n <= 38) || (n >= 40 && n <= 48) || (n >= 90 && n <= 97) || (n >= 100 && n <= 107) {
+				t.Fatalf("NO_COLOR is set but the screen has colour code %d:\n%q", n, styled)
+			}
+		}
+	}
+	// The layout is still readable in plain text.
+	plain := tm.screen()
+	for _, want := range []string{"> read the docs", "#reading", "Unfiled notes: 1", "Focus"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the plain screen lacks %q:\n%s", want, plain)
+		}
+	}
+}

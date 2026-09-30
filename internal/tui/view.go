@@ -8,7 +8,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -76,25 +75,25 @@ func (m Model) header() []string {
 	lines = append(lines, "")
 	switch {
 	case m.err != nil:
-		lines = append(lines, "  error: "+m.err.Error())
+		lines = append(lines, "  "+m.th.danger.Render("error: "+m.err.Error()))
 	case !m.loaded:
-		lines = append(lines, "  Loading…")
+		lines = append(lines, "  "+m.th.muted.Render("Loading…"))
 	default:
 		lines = append(lines, "  "+m.phaseLine())
 		if m.snap.Phase == core.PhaseFocus && m.snap.Session.PlannedDuration != m.focusDuration {
-			lines = append(lines, "  This session is "+durationText(m.snap.Session.PlannedDuration)+"; the current setting is "+durationText(m.focusDuration)+".")
+			lines = append(lines, "  "+m.th.needsYou.Render("This session is "+durationText(m.snap.Session.PlannedDuration)+"; the current setting is "+durationText(m.focusDuration)+"."))
 		}
 		if m.snap.HandoffPending {
-			lines = append(lines, "  Hand-off due")
+			lines = append(lines, "  "+m.th.needsYou.Render("Hand-off due"))
 		}
 		if m.unfiled > 0 {
-			lines = append(lines, fmt.Sprintf("  Unfiled notes: %d (i to file)", m.unfiled))
+			lines = append(lines, "  "+m.th.needsYou.Render(fmt.Sprintf("Unfiled notes: %d (i to file)", m.unfiled)))
 		}
 		if m.showAll {
-			lines = append(lines, "  Showing: all tasks")
+			lines = append(lines, "  "+m.th.muted.Render("Showing: all tasks"))
 		}
 		if m.filter != "" && m.mode != modePicker {
-			lines = append(lines, "  Filter: "+m.filter+"  (esc clears)")
+			lines = append(lines, "  "+m.th.muted.Render("Filter: "+m.filter+"  (esc clears)"))
 		}
 	}
 	return append(lines, "")
@@ -114,7 +113,7 @@ func (m Model) banner() string {
 	if pad := m.width - ansi.StringWidth(line); pad > 0 {
 		line += strings.Repeat(" ", pad)
 	}
-	return lipgloss.NewStyle().Reverse(true).Bold(true).Render(line)
+	return m.th.banner(b.Kind).Render(line)
 }
 
 func (m Model) footer() []string {
@@ -164,7 +163,7 @@ func (m Model) footer() []string {
 	}
 	lines = append(lines, m.promptLabel()+m.input.View())
 	if m.promptErr != "" {
-		lines = append(lines, "  "+m.promptErr)
+		lines = append(lines, "  "+m.th.danger.Render(m.promptErr))
 	}
 	return append(lines, "  "+m.helpLine(help))
 }
@@ -241,6 +240,19 @@ func agoText(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm ago", mins/60, mins%60)
 }
 
+// cursorRow is a list row with its marker. The row under the cursor keeps its
+// "> " and is painted as a bar that runs to the edge of the window.
+func (m Model) cursorRow(cursor bool, body string) string {
+	if !cursor {
+		return "    " + body
+	}
+	line := "  " + m.th.selected.Render("> ") + body
+	if pad := m.width - ansi.StringWidth(line); pad > 0 {
+		line += m.th.selected.Render(strings.Repeat(" ", pad))
+	}
+	return line
+}
+
 // helpLine renders key hints with the Bubbles help styling, dropping whole
 // hints from the end, and marking that with an ellipsis, when they do not fit
 // the terminal. help's own width handling is not used: when the ellipsis has no
@@ -306,22 +318,18 @@ func (m Model) listLines(rows int) []string {
 		query := strings.TrimSpace(m.input.Value())
 		switch {
 		case m.mode == modePicker && m.pick == pickStart && query != "":
-			return []string{"  + Create " + strconv.Quote(query) + " and start"}
+			return []string{"  " + m.th.accent.Render("+ Create "+strconv.Quote(query)+" and start")}
 		case m.mode == modePicker && query != "", m.mode != modePicker && m.filter != "":
-			return []string{"  No matches"}
+			return []string{"  " + m.th.muted.Render("No matches")}
 		}
-		return []string{"  No tasks yet. Press a to add one."}
+		return []string{"  " + m.th.muted.Render("No tasks yet. Press a to add one.")}
 	}
 	top := windowTop(rowHeights(matches), min(m.top, len(matches)-1), min(m.cursor, len(matches)-1), rows)
 	lines := make([]string, 0, rows)
 	for i := top; i < len(matches) && len(lines) < rows; i++ {
-		marker := "  "
-		if i == m.cursor {
-			marker = "> "
-		}
-		lines = append(lines, "  "+marker+matchText(matches[i]))
+		lines = append(lines, m.cursorRow(i == m.cursor, m.th.taskText(matches[i], i == m.cursor)))
 		if matches[i].Note != nil && len(lines) < rows {
-			lines = append(lines, noteLine(matches[i], m.snap.At))
+			lines = append(lines, m.th.noteLine(matches[i], m.snap.At))
 		}
 	}
 	return lines
@@ -331,23 +339,23 @@ func (m Model) listLines(rows int) []string {
 // newest first, scrolled by detailTop.
 func (m Model) detailLines(rows int) []string {
 	if !m.detailLoaded {
-		return []string{"  Loading…"}
+		return []string{"  " + m.th.muted.Render("Loading…")}
 	}
 	d := m.detail
 	lines := []string{
-		"  " + matchText(core.TaskMatch{Task: d.Task}),
-		"  Focused: " + focusText(d.Focused, d.Sessions),
+		"  " + m.th.taskText(core.TaskMatch{Task: d.Task}, false),
+		"  " + m.th.muted.Render("Focused: ") + focusText(d.Focused, d.Sessions),
 		"",
-		"  Notes",
+		"  " + m.th.accent.Render("Notes"),
 	}
 	if len(d.Notes) == 0 {
-		return append(lines, "  No notes yet. Press n to add one.")
+		return append(lines, "  "+m.th.muted.Render("No notes yet. Press n to add one."))
 	}
 	avail := max(rows-detailHeadLines, 1)
 	top := min(m.detailTop, max(len(d.Notes)-avail, 0))
 	for i := top; i < len(d.Notes) && i < top+avail; i++ {
 		n := d.Notes[len(d.Notes)-1-i]
-		lines = append(lines, "  "+n.CreatedAt.Local().Format("2006-01-02 15:04")+"  "+n.Text)
+		lines = append(lines, "  "+m.th.muted.Render(n.CreatedAt.Local().Format("2006-01-02 15:04"))+"  "+n.Text)
 	}
 	return lines
 }
@@ -360,23 +368,23 @@ const reportHeadLines = 3
 // tables, the tables scrolled by reportTop.
 func (m Model) reportLines(rows int) []string {
 	if !m.reportLoaded {
-		return []string{"  Loading…"}
+		return []string{"  " + m.th.muted.Render("Loading…")}
 	}
 	r := m.report
 	name, other := "Today", "This week"
 	if r.Period == core.PeriodWeek {
 		name, other = other, name
 	}
-	lines := []string{"  Report: " + name + "   (tab: " + other + ")"}
+	lines := []string{"  " + m.th.accent.Render("Report: "+name) + m.th.muted.Render("   (tab: "+other+")")}
 	if r.Sessions == 0 {
 		when := "today"
 		if r.Period == core.PeriodWeek {
 			when = "this week"
 		}
-		lines = append(lines, fmt.Sprintf("  Break overrides: %d", r.Overrides), "", "  No focused time "+when+".")
+		lines = append(lines, "  "+m.th.muted.Render(fmt.Sprintf("Break overrides: %d", r.Overrides)), "", "  "+m.th.muted.Render("No focused time "+when+"."))
 		return lines
 	}
-	lines = append(lines, "  Focused: "+focusText(r.Focused, r.Sessions)+"   Break overrides: "+fmt.Sprint(r.Overrides), "")
+	lines = append(lines, "  "+m.th.muted.Render("Focused: ")+focusText(r.Focused, r.Sessions)+m.th.muted.Render("   Break overrides: "+fmt.Sprint(r.Overrides)), "")
 	body := m.reportBody()
 	avail := max(rows-reportHeadLines, 1)
 	top := min(m.reportTop, max(len(body)-avail, 0))
@@ -389,15 +397,15 @@ func (m Model) reportBody() []string {
 	if !m.reportLoaded || r.Sessions == 0 {
 		return nil
 	}
-	body := []string{"  By task"}
+	body := []string{"  " + m.th.accent.Render("By task")}
 	for _, tt := range r.Tasks {
-		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tt.Focused))+"  "+matchText(core.TaskMatch{Task: tt.Task}))
+		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tt.Focused))+"  "+m.th.taskText(core.TaskMatch{Task: tt.Task}, false))
 	}
-	body = append(body, "", "  By tag")
+	body = append(body, "", "  "+m.th.accent.Render("By tag"))
 	for _, tag := range r.Tags {
-		label := "#" + tag.Tag
+		label := m.th.tag(tag.Tag).Render("#" + tag.Tag)
 		if tag.Untagged {
-			label = "(untagged)"
+			label = m.th.muted.Render("(untagged)")
 		}
 		body = append(body, "    "+fmt.Sprintf("%-8s", minutesText(tag.Focused))+"  "+label)
 	}
@@ -436,9 +444,9 @@ func focusText(d time.Duration, sessions int) string {
 func (m Model) inboxLines(rows int) []string {
 	switch {
 	case !m.inboxLoaded:
-		return []string{"  Loading…"}
+		return []string{"  " + m.th.muted.Render("Loading…")}
 	case len(m.inbox) == 0:
-		return []string{"  Inbox is empty."}
+		return []string{"  " + m.th.muted.Render("Inbox is empty.")}
 	}
 	heights := make([]int, len(m.inbox))
 	for i := range heights {
@@ -447,12 +455,13 @@ func (m Model) inboxLines(rows int) []string {
 	top := windowTop(heights, min(m.inboxTop, len(m.inbox)-1), min(m.inboxCursor, len(m.inbox)-1), rows)
 	lines := make([]string, 0, rows)
 	for i := top; i < len(m.inbox) && len(lines) < rows; i++ {
-		marker := "  "
-		if i == m.inboxCursor {
-			marker = "> "
-		}
 		n := m.inbox[i]
-		lines = append(lines, "  "+marker+n.Text+" ("+agoText(m.snap.At.Sub(n.CreatedAt))+")")
+		age := " (" + agoText(m.snap.At.Sub(n.CreatedAt)) + ")"
+		if i == m.inboxCursor {
+			lines = append(lines, m.cursorRow(true, m.th.selected.Render(n.Text+age)))
+			continue
+		}
+		lines = append(lines, m.cursorRow(false, n.Text+m.th.muted.Render(age)))
 	}
 	return lines
 }
@@ -470,9 +479,9 @@ func rowHeights(matches []core.TaskMatch) []int {
 }
 
 // noteLine is the line under a row whose match came from a note.
-func noteLine(tm core.TaskMatch, now time.Time) string {
+func (th theme) noteLine(tm core.TaskMatch, now time.Time) string {
 	n := tm.Note
-	return "      ↳ " + highlight(n.Note.Text, n.Runes) + " (" + agoText(now.Sub(n.Note.CreatedAt)) + ")"
+	return th.muted.Render("      ↳ ") + th.highlight(n.Note.Text, n.Runes, th.muted, th.match) + th.muted.Render(" ("+agoText(now.Sub(n.Note.CreatedAt))+")")
 }
 
 // pickAccept is what Enter does in the open picker, for the footer.
@@ -488,74 +497,20 @@ func (m Model) pickAccept() string {
 	return "start"
 }
 
-var matchStyle = lipgloss.NewStyle().Bold(true).Underline(true)
-
-// matchText is a Task's row text: its title with the characters the search
-// matched highlighted, a marker if it is not Active, and its Tags as #tag chips.
-func matchText(tm core.TaskMatch) string {
-	t := tm.Task
-	line := t.Title
-	if len(tm.Runes) > 0 {
-		line = highlight(t.Title, tm.Runes)
-	}
-	switch t.State {
-	case core.StateDone:
-		line += " (done)"
-	case core.StateArchived:
-		line += " (archived)"
-	}
-	if len(t.Tags) == 0 {
-		return line
-	}
-	chips := make([]string, len(t.Tags))
-	for i, tag := range t.Tags {
-		if runes := tm.TagRunes[i]; len(runes) > 0 {
-			tag = highlight(tag, runes)
-		}
-		chips[i] = "#" + tag
-	}
-	return line + "  " + strings.Join(chips, " ")
-}
-
-// highlight styles the runes of title at the given rune offsets.
-func highlight(title string, offsets []int) string {
-	hit := make(map[int]bool, len(offsets))
-	for _, o := range offsets {
-		hit[o] = true
-	}
-	var out, run strings.Builder
-	flush := func() {
-		if run.Len() > 0 {
-			out.WriteString(matchStyle.Render(run.String()))
-			run.Reset()
-		}
-	}
-	for i, r := range []rune(title) {
-		if hit[i] {
-			run.WriteRune(r)
-			continue
-		}
-		flush()
-		out.WriteRune(r)
-	}
-	flush()
-	return out.String()
-}
-
 // phaseLine is the panel's state line: the phase, its countdown, and for Focus
 // the Task being worked on.
 func (m Model) phaseLine() string {
 	switch m.snap.Phase {
 	case core.PhaseFocus:
-		line := "Focus   " + clockText(m.snap.Remaining)
+		line := m.th.focus.Render("Focus") + "   " + clockText(m.snap.Remaining)
 		if m.sessionTask != nil {
 			line += "   " + m.sessionTask.Title
 		}
 		return line
 	case core.PhaseBreak:
-		return "Break   " + clockText(m.snap.Remaining)
+		return m.th.rest.Render("Break") + "   " + clockText(m.snap.Remaining)
 	}
-	return "Idle"
+	return m.th.muted.Render("Idle")
 }
 
 // durationText words a duration compactly, e.g. "45m", "1h" or "1h30m".
