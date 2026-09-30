@@ -168,3 +168,48 @@ func TestResolveFrom(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDuration(t *testing.T) {
+	if d, err := config.ParseDuration("20m"); err != nil || d != 20*time.Minute {
+		t.Errorf("ParseDuration(20m) = %v, %v", d, err)
+	}
+	for text, want := range map[string]string{"3x": "not a duration", "": "not a duration", "0s": "positive", "-5m": "positive"} {
+		if _, err := config.ParseDuration(text); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ParseDuration(%q) error = %v, want one saying %q", text, err, want)
+		}
+	}
+}
+
+func TestParseInterval(t *testing.T) {
+	if n, err := config.ParseInterval("3"); err != nil || n != 3 {
+		t.Errorf("ParseInterval(3) = %d, %v", n, err)
+	}
+	for text, want := range map[string]string{"0": "at least 1", "-2": "at least 1", "x": "integer", "1.5": "integer", "": "integer"} {
+		if _, err := config.ParseInterval(text); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ParseInterval(%q) error = %v, want one saying %q", text, err, want)
+		}
+	}
+}
+
+func TestApply_OverridesOnlyTheFieldsThatAreSet(t *testing.T) {
+	base := config.Defaults()
+	base.FocusDuration = 45 * time.Minute // as if from a config file
+
+	focus, interval := 20*time.Minute, 2
+	got := base.Apply(config.Overrides{FocusDuration: &focus, LongBreakInterval: &interval})
+	want := base
+	want.FocusDuration, want.LongBreakInterval = 20*time.Minute, 2
+	if got != want {
+		t.Errorf("Apply = %+v, want %+v", got, want)
+	}
+
+	if got := base.Apply(config.Overrides{}); got != base {
+		t.Errorf("Apply with nothing set = %+v, want the settings unchanged: %+v", got, base)
+	}
+
+	breakD, long := 3*time.Minute, 15*time.Minute
+	got = base.Apply(config.Overrides{BreakDuration: &breakD, LongBreakDuration: &long})
+	if got.BreakDuration != 3*time.Minute || got.LongBreakDuration != 15*time.Minute || got.FocusDuration != 45*time.Minute {
+		t.Errorf("Apply = %+v, want the two Break durations replaced and the focus duration kept", got)
+	}
+}

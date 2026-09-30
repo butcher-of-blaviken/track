@@ -972,3 +972,70 @@ func TestAMissingNamedConfigFileIsAnError(t *testing.T) {
 		t.Error("exit status = 0, want a failure")
 	}
 }
+
+func TestTheFocusDurationFlagSetsTheCountdown(t *testing.T) {
+	t.Parallel()
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--focus-duration", "20m")
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "flagged work", `flagged work`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+(20:00|19:5\d)\s+flagged work`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestAFlagBeatsTheConfigFile(t *testing.T) {
+	t.Parallel()
+	cfg := writeConfig(t, "focus_duration = \"45m\"\n")
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--config", cfg, "--focus-duration", "20m")
+	tm.waitFor(`No tasks`, wait)
+	addTaskByKeyboard(tm, "flagged work", `flagged work`)
+	tm.press("Enter")
+	tm.waitFor(`Focus\s+(20:00|19:5\d)\s+flagged work`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestARunningSessionFromAnotherSettingShowsTheMismatchNotice(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRunningSessionOf(t, dir, 45*time.Minute)
+	tm := launch(t, nil, "--data-dir", dir, "--focus-duration", "20m")
+	tm.waitFor(`This session is 45m; the current setting is 20m`, wait)
+	tm.press("q")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+}
+
+func TestABadFlagValueStopsTheAppNamingTheFlag(t *testing.T) {
+	t.Parallel()
+	tm := launch(t, nil, "--data-dir", t.TempDir(), "--focus-duration", "soon")
+	if status := tm.exitStatus(wait); status == 0 {
+		t.Error("exit status = 0, want a failure")
+	}
+	s := tm.screen()
+	for _, want := range []string{"focus-duration", "not a duration"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the message lacks %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestHelpListsTheFlagsAndExitsCleanly(t *testing.T) {
+	t.Parallel()
+	tm := launch(t, nil, "--help")
+	if status := tm.exitStatus(wait); status != 0 {
+		t.Errorf("exit status = %d, want 0", status)
+	}
+	s := tm.screen()
+	for _, want := range []string{"--focus-duration", "--break-duration", "--long-break-duration", "--long-break-interval"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the help lacks %q:\n%s", want, s)
+		}
+	}
+}

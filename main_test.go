@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,5 +156,130 @@ func TestNewTracker_TheSettingsDriveTheBellPolicy(t *testing.T) {
 		case tc.want > 0 && (snap.Bell == nil || snap.Bell.Scheduled != tc.want):
 			t.Errorf("%v after the end: bell %+v, want %d rings due", tc.after, snap.Bell, tc.want)
 		}
+	}
+}
+
+func TestParseArgs_NoFlagsSetsNothing(t *testing.T) {
+	opts, err := parseArgs(nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.overrides != (config.Overrides{}) || opts.dataDir != "" || opts.configFile != "" {
+		t.Errorf("opts = %+v, want everything unset", opts)
+	}
+}
+
+func TestParseArgs_TheFourDurationFlagsInEveryForm(t *testing.T) {
+	for _, args := range [][]string{
+		{"--focus-duration", "20m", "--break-duration", "3m", "--long-break-duration", "15m", "--long-break-interval", "2"},
+		{"-focus-duration", "20m", "-break-duration", "3m", "-long-break-duration", "15m", "-long-break-interval", "2"},
+		{"--focus-duration=20m", "--break-duration=3m", "--long-break-duration=15m", "--long-break-interval=2"},
+	} {
+		opts, err := parseArgs(args, io.Discard)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		o := opts.overrides
+		if o.FocusDuration == nil || *o.FocusDuration != 20*time.Minute ||
+			o.BreakDuration == nil || *o.BreakDuration != 3*time.Minute ||
+			o.LongBreakDuration == nil || *o.LongBreakDuration != 15*time.Minute ||
+			o.LongBreakInterval == nil || *o.LongBreakInterval != 2 {
+			t.Errorf("%v: overrides = %+v", args, o)
+		}
+	}
+}
+
+func TestParseArgs_OnlyTheFlagsGivenAreSet(t *testing.T) {
+	opts, err := parseArgs([]string{"--break-duration", "3m", "--data-dir", "/d", "--config", "/c.toml"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts.overrides
+	if o.BreakDuration == nil || o.FocusDuration != nil || o.LongBreakDuration != nil || o.LongBreakInterval != nil {
+		t.Errorf("overrides = %+v, want only the Break duration", o)
+	}
+	if opts.dataDir != "/d" || opts.configFile != "/c.toml" {
+		t.Errorf("opts = %+v", opts)
+	}
+}
+
+func TestParseArgs_BadValuesAreRefusedNamingTheFlag(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args      []string
+		flag, why string
+	}{
+		"not a duration":    {[]string{"--focus-duration", "soon"}, "focus-duration", "not a duration"},
+		"zero duration":     {[]string{"--break-duration", "0s"}, "break-duration", "positive"},
+		"negative duration": {[]string{"--long-break-duration=-1m"}, "long-break-duration", "positive"},
+		"zero interval":     {[]string{"--long-break-interval", "0"}, "long-break-interval", "at least 1"},
+		"not an integer":    {[]string{"--long-break-interval", "four"}, "long-break-interval", "integer"},
+		"missing value":     {[]string{"--focus-duration"}, "focus-duration", "argument"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseArgs(tc.args, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), tc.flag) || !strings.Contains(err.Error(), tc.why) {
+				t.Errorf("err = %v, want one naming -%s and saying %q", err, tc.flag, tc.why)
+			}
+		})
+	}
+}
+
+func TestParseArgs_AnUnknownFlagIsRefused(t *testing.T) {
+	if _, err := parseArgs([]string{"--focus"}, io.Discard); err == nil {
+		t.Error("an unknown flag returned no error")
+	}
+}
+
+func TestParseArgs_HelpListsEveryFlagWithItsDefault(t *testing.T) {
+	var out bytes.Buffer
+	_, err := parseArgs([]string{"--help"}, &out)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("err = %v, want flag.ErrHelp", err)
+	}
+	for _, want := range []string{
+		"--focus-duration", "--break-duration", "--long-break-duration", "--long-break-interval",
+		"--data-dir", "--config", "30m", "10m", "20m", "config.toml",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("usage lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestSettingsFor_FlagsBeatTheConfigFileWhichBeatsTheDefaults(t *testing.T) {
+	path := writeConfigFile(t, t.TempDir(), "focus_duration = \"45m\"\nbreak_duration = \"7m\"\n")
+	opts, err := parseArgs([]string{"--config", path, "--focus-duration", "20m"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := opts.settings(env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FocusDuration != 20*time.Minute {
+		t.Errorf("focus = %v, want the flag's 20m over the file's 45m", got.FocusDuration)
+	}
+	if got.BreakDuration != 7*time.Minute {
+		t.Errorf("break = %v, want the file's 7m (no flag)", got.BreakDuration)
+	}
+	if got.LongBreakDuration != config.Defaults().LongBreakDuration {
+		t.Errorf("long break = %v, want the default", got.LongBreakDuration)
+	}
+}
+
+func TestSettingsFor_ABrokenConfigStillStopsStartupWhateverTheFlagsSay(t *testing.T) {
+	path := writeConfigFile(t, t.TempDir(), `focus_duration = "soon"`)
+	opts, err := parseArgs([]string{"--config", path, "--focus-duration", "20m"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := opts.settings(env(nil)); err == nil || !strings.Contains(err.Error(), "focus_duration") {
+		t.Errorf("err = %v, want the config error", err)
+	}
+}
+
+func TestRun_HelpSucceeds(t *testing.T) {
+	if err := run([]string{"--help"}, env(nil)); err != nil {
+		t.Errorf("run(--help) = %v, want nil", err)
 	}
 }

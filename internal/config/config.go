@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -36,6 +38,33 @@ func Defaults() Settings {
 		BellInterval:      30 * time.Second,
 		BellRepeats:       10,
 	}
+}
+
+// Overrides are the settings the command-line flags set. A nil field was not
+// given and leaves the setting alone.
+type Overrides struct {
+	FocusDuration     *time.Duration
+	BreakDuration     *time.Duration
+	LongBreakDuration *time.Duration
+	LongBreakInterval *int
+}
+
+// Apply returns the settings with the overrides that are set replacing theirs:
+// flags over the config file over the defaults.
+func (s Settings) Apply(o Overrides) Settings {
+	if o.FocusDuration != nil {
+		s.FocusDuration = *o.FocusDuration
+	}
+	if o.BreakDuration != nil {
+		s.BreakDuration = *o.BreakDuration
+	}
+	if o.LongBreakDuration != nil {
+		s.LongBreakDuration = *o.LongBreakDuration
+	}
+	if o.LongBreakInterval != nil {
+		s.LongBreakInterval = *o.LongBreakInterval
+	}
+	return s
 }
 
 // Env is the slice of the process environment that Resolve depends on,
@@ -130,19 +159,40 @@ func (s *Settings) set(key string, value any) error {
 	return fmt.Errorf("unknown key %q", key)
 }
 
-// duration reads a positive duration written as a string such as "30m". A bare
-// number would be nanoseconds, which is never what the file means.
+// ParseDuration reads a positive duration written as a string such as "30m".
+// A bare number would be nanoseconds, which is never what anyone means.
+func ParseDuration(text string) (time.Duration, error) {
+	d, err := time.ParseDuration(text)
+	if err != nil {
+		return 0, fmt.Errorf(`%q is not a duration (try "30m")`, text)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("must be positive, got %s", text)
+	}
+	return d, nil
+}
+
+// ParseInterval reads a whole number of at least 1.
+func ParseInterval(text string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		return 0, fmt.Errorf("%q is not an integer", text)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("must be at least 1, got %d", n)
+	}
+	return n, nil
+}
+
+// duration reads a duration config value, which must be a string.
 func duration(key string, value any, into *time.Duration) error {
 	text, ok := value.(string)
 	if !ok {
 		return fmt.Errorf(`%s: must be a string such as "30m"`, key)
 	}
-	d, err := time.ParseDuration(text)
+	d, err := ParseDuration(text)
 	if err != nil {
-		return fmt.Errorf(`%s: %q is not a duration (try "30m")`, key, text)
-	}
-	if d <= 0 {
-		return fmt.Errorf("%s: must be positive, got %s", key, text)
+		return fmt.Errorf("%s: %w", key, err)
 	}
 	*into = d
 	return nil
