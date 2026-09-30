@@ -21,6 +21,9 @@ type keyMap struct {
 	// Task detail view.
 	Detail, DetailBack, Scroll key.Binding
 
+	// Layout toggles the split layout, in the list, inbox and detail.
+	Layout key.Binding
+
 	// Report view. Its Back is the detail's, plus r.
 	Report, ReportBack, Period key.Binding
 
@@ -81,6 +84,7 @@ func newKeyMap() keyMap {
 		Detail:     key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "open")),
 		DetailBack: key.NewBinding(key.WithKeys("esc", "h"), key.WithHelp("esc", "back")),
 		Scroll:     key.NewBinding(key.WithKeys("j", "k", "up", "down"), key.WithHelp("j/k", "scroll")),
+		Layout:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "layout")),
 		Inbox:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inbox")),
 		Note:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "note")),
 		File:       key.NewBinding(key.WithKeys("f", "enter"), key.WithHelp("enter", "file")),
@@ -121,7 +125,7 @@ func (k keyMap) listFull() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Start, k.Stop, k.Add, k.Note, k.Done, k.Archive, k.Reopen},
 		{k.Detail, k.Report, k.Inbox, k.Find, k.Pick, k.All},
-		{k.Move, k.Docs, k.Help, k.Quit},
+		{k.Move, k.Layout, k.Docs, k.Help, k.Quit},
 	}
 }
 
@@ -158,7 +162,7 @@ func (k keyMap) inboxHelp() []key.Binding {
 }
 
 func (k keyMap) inboxFull() [][]key.Binding {
-	return [][]key.Binding{{k.File, k.NewTask}, {k.Move, k.Back}, {k.Docs, k.Help, k.Quit}}
+	return [][]key.Binding{{k.File, k.NewTask}, {k.Move, k.Back}, {k.Layout, k.Docs, k.Help, k.Quit}}
 }
 
 // noteHelp is what the footer shows while the note prompt is open.
@@ -174,7 +178,7 @@ func (k keyMap) detailHelp() []key.Binding {
 }
 
 func (k keyMap) detailFull() [][]key.Binding {
-	return [][]key.Binding{{k.Start, k.Note}, {k.Scroll, k.DetailBack}, {k.Docs, k.Help, k.Quit}}
+	return [][]key.Binding{{k.Start, k.Note}, {k.Scroll, k.DetailBack}, {k.Layout, k.Docs, k.Help, k.Quit}}
 }
 
 // reportHelp is what the footer shows in the report, and reportFull its full help.

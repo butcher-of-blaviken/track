@@ -56,10 +56,16 @@ var sockets atomic.Int64
 
 func launch(t *testing.T, env []string, args ...string) *term {
 	t.Helper()
+	return launchAt(t, 80, 24, env, args...)
+}
+
+// launchAt is launch in a terminal of the given size.
+func launchAt(t *testing.T, width, height int, env []string, args ...string) *term {
+	t.Helper()
 	tm := &term{t: t, socket: fmt.Sprintf("track-e2e-%d-%d", os.Getpid(), sockets.Add(1))}
 	t.Cleanup(func() { _ = tm.tmux("kill-server").Run() })
 
-	cmd := []string{"new-session", "-d", "-s", "app", "-x", "80", "-y", "24"}
+	cmd := []string{"new-session", "-d", "-s", "app", "-x", strconv.Itoa(width), "-y", strconv.Itoa(height)}
 	for _, e := range env {
 		cmd = append(cmd, "-e", e)
 	}

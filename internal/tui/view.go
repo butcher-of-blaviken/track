@@ -43,8 +43,12 @@ func (m Model) promptLabel() string {
 // View implements tea.Model.
 func (m Model) View() tea.View {
 	header, footer := m.header(), m.footer()
-	rows := m.listRows()
-	list := m.listLines(rows)
+	var list []string
+	if m.splitShowing() {
+		list = m.splitBody()
+	} else {
+		list = m.listLines(m.listRows())
+	}
 
 	lines := append(append(append([]string{}, header...), list...), footer...)
 	// The footer's first line is blank; the hand-off prompt has a context line
@@ -248,7 +252,7 @@ func (m Model) cursorRow(cursor bool, body string) string {
 		return "    " + body
 	}
 	line := "  " + m.th.selected.Render("> ") + body
-	if pad := m.width - ansi.StringWidth(line); pad > 0 {
+	if pad := m.contentWidth() - ansi.StringWidth(line); pad > 0 {
 		line += m.th.selected.Render(strings.Repeat(" ", pad))
 	}
 	return line
@@ -303,7 +307,7 @@ func (m Model) listLines(rows int) []string {
 		return nil
 	}
 	if m.mode == modeInbox {
-		return m.inboxLines(rows)
+		return m.inboxLines(rows, true)
 	}
 	if m.inDocs() {
 		return strings.Split(m.docs.View(), "\n")
@@ -313,6 +317,14 @@ func (m Model) listLines(rows int) []string {
 	}
 	if m.mode == modeReport {
 		return m.reportLines(rows)
+	}
+	return m.taskLines(rows)
+}
+
+// taskLines is the Task rows, the ones a filter or the open picker leaves.
+func (m Model) taskLines(rows int) []string {
+	if !m.loaded {
+		return nil
 	}
 	matches := m.rows()
 	if len(matches) == 0 {
@@ -342,7 +354,10 @@ const detailHistoryShown = 5
 // detailLines is the Task detail: the Task, its focused time, its state and when
 // it was created, then a scrolling body of its latest sessions and its note log.
 func (m Model) detailLines(rows int) []string {
-	if !m.detailLoaded {
+	switch {
+	case m.detailWanted() == 0:
+		return []string{"  " + m.th.muted.Render("No task selected.")}
+	case !m.detailReady():
 		return []string{"  " + m.th.muted.Render("Loading…")}
 	}
 	d := m.detail
@@ -484,8 +499,10 @@ func focusText(d time.Duration, sessions int) string {
 	return fmt.Sprintf("%s over %d sessions", amount, sessions)
 }
 
-// inboxLines is the Unfiled notes, oldest first, one per line.
-func (m Model) inboxLines(rows int) []string {
+// inboxLines is the Unfiled notes, oldest first, one per line. The cursor shows
+// on the note it is on if marked; in the split layout the Inbox panel leaves it
+// out while another panel has the keyboard.
+func (m Model) inboxLines(rows int, marked bool) []string {
 	switch {
 	case !m.inboxLoaded:
 		return []string{"  " + m.th.muted.Render("Loading…")}
@@ -501,7 +518,7 @@ func (m Model) inboxLines(rows int) []string {
 	for i := top; i < len(m.inbox) && len(lines) < rows; i++ {
 		n := m.inbox[i]
 		age := " (" + agoText(m.snap.At.Sub(n.CreatedAt)) + ")"
-		if i == m.inboxCursor {
+		if marked && i == m.inboxCursor {
 			lines = append(lines, m.cursorRow(true, m.th.selected.Render(n.Text+age)))
 			continue
 		}

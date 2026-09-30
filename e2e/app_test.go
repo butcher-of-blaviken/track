@@ -1319,3 +1319,38 @@ func TestTheHeaderShowsAPhaseBadgeAndAProgressBar(t *testing.T) {
 		t.Errorf("the Focus badge has SGR %v, want reverse (7) and magenta (35)", p)
 	}
 }
+
+func TestTheSplitLayoutShowsThreePanelsAndTheModeChoosesTheFocusedOne(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedTaskWithNote(t, dir, "read the docs", "chapter two")
+	runTrack(t, "--data-dir", dir, "note", "stray idea")
+	tm := launchAt(t, 120, 30, nil, "--data-dir", dir)
+
+	tm.waitUntil("the three panels", wait, func(s string) bool {
+		return strings.Contains(s, "╭─ Tasks") && strings.Contains(s, "╭─ Inbox (1)") && strings.Contains(s, "╭─ Detail") &&
+			strings.Contains(s, "chapter two") && strings.Contains(s, "stray idea")
+	})
+	bold := func(text string) bool { p := sgrAt(t, tm.styledScreen(), text); return p[1] && p[34] }
+	if !bold(" Tasks") || bold(" Inbox") || bold(" Detail") {
+		t.Errorf("the Tasks panel should be the only one with the bright title:\n%s", tm.screen())
+	}
+
+	tm.press("i")
+	tm.waitFor(`╭─ Note`, wait)
+	if !bold(" Inbox") || bold(" Tasks") {
+		t.Errorf("the Inbox should have the keyboard:\n%s", tm.screen())
+	}
+	tm.press("Escape")
+	tm.waitFor(`╭─ Detail`, wait) // a key right behind Escape would read as Alt
+	tm.press("l")
+	tm.waitUntil("the Detail panel focused", wait, func(string) bool { return bold(" Detail") })
+	tm.press("Escape")
+	tm.waitUntil("the Tasks panel focused again", wait, func(string) bool { return bold(" Tasks") })
+
+	tm.press("v")
+	tm.waitUntil("a single pane", wait, func(s string) bool { return !strings.Contains(s, "╭") && strings.Contains(s, "read the docs") })
+	tm.press("v")
+	tm.waitFor(`╭─ Tasks`, wait)
+	tm.press("q")
+}

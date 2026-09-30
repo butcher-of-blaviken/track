@@ -218,7 +218,7 @@ func runTUI(opts options, getenv func(string) string) error {
 	}
 	defer func() { _ = a.close() }()
 
-	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithDocs(readmeText))).Run()
+	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithDocs(readmeText))).Run()
 	return err
 }
 

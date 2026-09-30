@@ -50,7 +50,7 @@ var (
 	keyEsc   = tea.KeyPressMsg{Code: tea.KeyEscape}
 )
 
-var selectedRow = regexp.MustCompile(`(?m)^ *> (.*)$`)
+var selectedRow = regexp.MustCompile(`(?m)^[│ ]*> ([^│\n]*)`)
 
 // selected returns the text of the row with the cursor on it.
 func selected(t *testing.T, m tea.Model) string {

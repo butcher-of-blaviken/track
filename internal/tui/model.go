@@ -234,6 +234,11 @@ type Model struct {
 	docsHits  int
 	docsAt    int
 
+	// singleLayout is whether the split layout is off (see split.go).
+	singleLayout bool
+	// panelWidth is set on the copy of the model that draws one panel.
+	panelWidth int
+
 	keys keyMap
 	help help.Model
 	th   theme
@@ -359,7 +364,7 @@ func defaultTick() tea.Cmd {
 
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
-	tracker, wantNote, all, wantNotes, wantInbox, detailFor, reportFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailFor, m.reportPeriod()
+	tracker, wantNote, all, wantNotes, wantInbox, detailFor, reportFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailWanted(), m.reportPeriod()
 	todayRead, todayKey := m.todayRead, m.todayKey
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -482,6 +487,16 @@ func (m Model) Init() tea.Cmd { return tea.Batch(m.fetch(), m.tick()) }
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		if _, key := msg.(tea.KeyPressMsg); key && nm.detailWanted() != m.detailWanted() {
+			// The split layout's detail pane follows the Tasks cursor, from the top.
+			nm.detailTop = 0
+			if nm.detailWanted() != 0 {
+				cmd = tea.Batch(cmd, nm.fetch())
+			}
+			next = nm
+		}
+	}
 	if nm, ok := next.(Model); ok && nm.showHelp && nm.mode != nm.helpMode {
 		nm.showHelp = false // the view it was open in is gone
 		next = nm
@@ -510,7 +525,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.report != nil && m.mode == modeReport && msg.report.Period == m.period {
 				m.report, m.reportLoaded = *msg.report, true
 			}
-			if msg.detail != nil && msg.detail.Task.ID == m.detailFor {
+			if msg.detail != nil && msg.detail.Task.ID == m.detailWanted() {
 				m.detail, m.detailLoaded = *msg.detail, true
 			}
 			m.syncInbox(msg.unfiledNotes)
@@ -585,6 +600,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.sizeInput()
 		m.scrollToCursor()
+		m.scrollInbox()
+		if m.splitShowing() && (!m.detailReady() || !m.inboxLoaded) {
+			return m, m.fetch() // the panels need what the list alone did not
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		m.acknowledgeBell() // any key silences a ringing bell; it is still handled below
@@ -692,7 +711,9 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(rows) == 0 {
 			return m, nil
 		}
-		m.mode, m.detailFor, m.detailLoaded, m.detailTop = modeDetail, rows[min(m.cursor, len(rows)-1)].Task.ID, false, 0
+		id := rows[min(m.cursor, len(rows)-1)].Task.ID
+		m.detailLoaded = m.detailLoaded && m.detail.Task.ID == id // the split layout has it already
+		m.mode, m.detailFor, m.detailTop = modeDetail, id, 0
 		return m, m.fetch()
 	case key.Matches(press, m.keys.Docs):
 		return m.openDocs()
@@ -704,7 +725,10 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.notice = "No unfiled notes."
 			return m, nil
 		}
-		m.mode, m.inbox, m.inboxLoaded = modeInbox, nil, false
+		if !m.splitShowing() {
+			m.inbox, m.inboxLoaded = nil, false
+		}
+		m.mode = modeInbox
 		return m, m.fetch()
 	case key.Matches(press, m.keys.Note):
 		m.mode, m.promptErr = modeNote, ""
@@ -721,6 +745,8 @@ func (m Model) updateList(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.reselect()
 	case key.Matches(press, m.keys.Stop):
 		return m, m.stop()
+	case key.Matches(press, m.keys.Layout):
+		return m.toggleLayout()
 	case key.Matches(press, m.keys.Down):
 		m.moveCursor(1)
 	case key.Matches(press, m.keys.Up):
@@ -1030,7 +1056,7 @@ func (m *Model) scrollToCursor() {
 		m.top = 0
 		return
 	}
-	m.top = windowTop(heights, min(m.top, len(heights)-1), min(m.cursor, len(heights)-1), m.listRows())
+	m.top = windowTop(heights, min(m.top, len(heights)-1), min(m.cursor, len(heights)-1), m.tasksRows())
 }
 
 // windowTop returns the first visible item so that the cursor item is inside a
@@ -1099,7 +1125,7 @@ type noteMsg struct{ err error }
 // inboxOpen is whether the Unfiled notes are needed: the inbox is showing, or
 // the picker is choosing a Task to file one onto.
 func (m Model) inboxOpen() bool {
-	return m.mode == modeInbox || (m.mode == modePicker && m.pick == pickFile)
+	return m.mode == modeInbox || (m.mode == modePicker && m.pick == pickFile) || m.splitShowing()
 }
 
 // syncInbox takes the notes a refresh read, keeping the cursor on its note.
@@ -1136,7 +1162,7 @@ func (m *Model) scrollInbox() {
 	for i := range heights {
 		heights[i] = 1
 	}
-	m.inboxTop = windowTop(heights, min(m.inboxTop, len(heights)-1), min(m.inboxCursor, len(heights)-1), m.listRows())
+	m.inboxTop = windowTop(heights, min(m.inboxTop, len(heights)-1), min(m.inboxCursor, len(heights)-1), m.inboxRows())
 }
 
 func (m *Model) moveInbox(delta int) {
@@ -1158,8 +1184,13 @@ func (m Model) updateInbox(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(press, m.keys.Docs):
 		return m.openDocs()
+	case key.Matches(press, m.keys.Layout):
+		return m.toggleLayout()
 	case key.Matches(press, m.keys.Back):
-		m.mode, m.inbox, m.inboxLoaded = modeList, nil, false
+		m.mode = modeList
+		if !m.splitShowing() {
+			m.inbox, m.inboxLoaded = nil, false
+		}
 	case key.Matches(press, m.keys.Down):
 		m.moveInbox(1)
 	case key.Matches(press, m.keys.Up):
@@ -1256,6 +1287,8 @@ func (m Model) updateDetail(press tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(press, m.keys.Docs):
 		return m.openDocs()
+	case key.Matches(press, m.keys.Layout):
+		return m.toggleLayout()
 	case key.Matches(press, m.keys.DetailBack):
 		m.mode, m.detailFor = modeList, 0
 	case key.Matches(press, m.keys.Down):
@@ -1282,7 +1315,7 @@ const detailHeadLines = 4
 
 // detailMaxTop is how far the detail's body can scroll.
 func (m Model) detailMaxTop() int {
-	avail := max(m.listRows()-detailHeadLines, 1)
+	avail := max(m.detailRows()-detailHeadLines, 1)
 	return max(len(m.detailBody())-avail, 0)
 }
 

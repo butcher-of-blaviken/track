@@ -26,6 +26,7 @@ type theme struct {
 	muted    lipgloss.Style // timestamps, labels, Done and Archived tasks
 	selected lipgloss.Style // the cursor row: reverse video of the accent
 	match    lipgloss.Style // the characters a search matched
+	edge     lipgloss.Style // the border of the panel that has the keyboard
 	tags     [4]lipgloss.Style
 }
 
@@ -42,6 +43,7 @@ func newTheme() theme {
 		// bar reads on light and dark themes alike.
 		selected: fg(lipgloss.Blue).Reverse(true),
 		match:    lipgloss.NewStyle().Bold(true).Underline(true),
+		edge:     fg(lipgloss.Blue),
 		tags:     [4]lipgloss.Style{fg(lipgloss.Cyan), fg(lipgloss.Yellow), fg(lipgloss.Magenta), fg(lipgloss.Green)},
 	}
 }
