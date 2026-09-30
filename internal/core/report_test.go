@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -252,5 +253,210 @@ func TestReport_IncludesDoneAndArchivedTasksAndIsEmptyWithNoSessions(t *testing.
 	got := r.report(t, core.PeriodToday)
 	if len(got.Tasks) != 1 || got.Tasks[0].Task.State != core.StateDone {
 		t.Errorf("tasks = %+v, want the Done Task", got.Tasks)
+	}
+}
+
+// note saves a note written at when, filed onto task (0 for an Unfiled note) and
+// linked to session if that is not 0, as another process would have left it.
+func (r *reportRig) note(t *testing.T, task core.TaskID, session core.SessionID, text string, when time.Time) {
+	t.Helper()
+	if err := r.store.Update(ctx, func(tx core.Tx) error {
+		_, err := tx.CreateNote(core.Note{TaskID: task, SessionID: session, Text: text, CreatedAt: when})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// finished saves a Done Task, finished at when, or with no date if when is zero.
+func (r *reportRig) finished(t *testing.T, title string, when time.Time) core.TaskID {
+	t.Helper()
+	task := core.Task{Title: title, State: core.StateDone, CreatedAt: reportNow}
+	if !when.IsZero() {
+		task.DoneAt = &when
+	}
+	var id core.TaskID
+	if err := r.store.Update(ctx, func(tx core.Tx) error {
+		var err error
+		id, err = tx.CreateTask(task)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func (r *reportRig) day(t *testing.T, day time.Time) core.Report {
+	t.Helper()
+	got, err := r.tracker.Day(ctx, day)
+	if err != nil {
+		t.Fatalf("Day: %v", err)
+	}
+	return got
+}
+
+func texts(notes []core.Note) []string {
+	out := []string{}
+	for _, n := range notes {
+		out = append(out, n.Text)
+	}
+	return out
+}
+
+func TestDay_ReportsAnyLocalDayNotOnlyToday(t *testing.T) {
+	r := newReportRig(t)
+	id := r.task(t, "work")
+	r.session(t, id, at(29, 9, 0), 0, 0)               // yesterday, 30m
+	r.session(t, id, at(29, 14, 0), 12*time.Minute, 0) // yesterday, 12m
+	r.session(t, id, at(30, 9, 0), 0, 0)               // today, 30m
+	r.session(t, id, at(28, 9, 0), 0, 0)               // the day before
+
+	// Any moment of the day names it.
+	for _, when := range []time.Time{at(29, 0, 0), at(29, 13, 37), at(29, 23, 59)} {
+		got := r.day(t, when)
+		if !got.From.Equal(at(29, 0, 0)) || !got.To.Equal(at(30, 0, 0)) {
+			t.Errorf("Day(%v) window = [%v, %v)", when, got.From, got.To)
+		}
+		if got.Focused != 42*time.Minute || got.Sessions != 2 {
+			t.Errorf("Day(%v) = %v over %d sessions, want 42m over 2", when, got.Focused, got.Sessions)
+		}
+		if len(got.Tasks) != 1 || got.Tasks[0].Sessions != 2 || got.Tasks[0].Focused != 42*time.Minute {
+			t.Errorf("Day(%v) tasks = %+v, want one task with 2 sessions and 42m", when, got.Tasks)
+		}
+	}
+	if got := r.day(t, at(27, 12, 0)); got.Focused != 0 || got.Sessions != 0 || len(got.Tasks) != 0 {
+		t.Errorf("a day with nothing = %+v", got)
+	}
+	if today, day := r.report(t, core.PeriodToday), r.day(t, reportNow); today.Focused != day.Focused || today.Sessions != day.Sessions || !today.From.Equal(day.From) {
+		t.Errorf("Report(today) = %+v, Day(now) = %+v; want the same", today, day)
+	}
+}
+
+func TestDay_ASessionAcrossMidnightCountsInBothDaysAndOncePerDayInTheTaskCount(t *testing.T) {
+	r := newReportRig(t)
+	id := r.task(t, "late night")
+	r.session(t, id, at(29, 23, 50), 0, 0) // 30m: 10m on the 29th, 20m on the 30th
+
+	first, second := r.day(t, at(29, 12, 0)), r.day(t, at(30, 12, 0))
+	if first.Focused != 10*time.Minute || second.Focused != 20*time.Minute {
+		t.Errorf("split = %v and %v, want 10m and 20m", first.Focused, second.Focused)
+	}
+	if first.Tasks[0].Sessions != 1 || second.Tasks[0].Sessions != 1 {
+		t.Errorf("session counts = %d and %d, want 1 and 1", first.Tasks[0].Sessions, second.Tasks[0].Sessions)
+	}
+}
+
+func TestDay_NotesWrittenThatDayGroupedByTaskOldestFirst(t *testing.T) {
+	r := newReportRig(t)
+	worked := r.task(t, "worked on")
+	onlyNoted := r.task(t, "only noted")
+	r.session(t, worked, at(29, 9, 0), 0, 0)
+	r.note(t, worked, 0, "before the day", at(28, 23, 59))
+	r.note(t, worked, 0, "second of the day", at(29, 16, 0))
+	r.note(t, worked, 1, "first of the day, a hand-off", at(29, 9, 30))
+	r.note(t, onlyNoted, 0, "noted without focusing", at(29, 11, 0))
+	r.note(t, worked, 0, "after the day", at(30, 0, 0)) // the end of the window is exclusive
+	r.note(t, worked, 0, "the very start counts", at(29, 0, 0))
+
+	got := r.day(t, at(29, 12, 0))
+	if len(got.Notes) != 2 {
+		t.Fatalf("notes by task = %+v, want two tasks", got.Notes)
+	}
+	if got.Notes[0].Task.ID != worked || got.Notes[1].Task.ID != onlyNoted {
+		t.Errorf("tasks = %v, %v; want by task ID: %v then %v", got.Notes[0].Task.ID, got.Notes[1].Task.ID, worked, onlyNoted)
+	}
+	want := []string{"the very start counts", "first of the day, a hand-off", "second of the day"}
+	if g := texts(got.Notes[0].Notes); !slices.Equal(g, want) {
+		t.Errorf("worked-on notes = %q, want %q", g, want)
+	}
+	if got.Notes[0].Notes[1].SessionID == 0 {
+		t.Errorf("the hand-off note lost its session: %+v", got.Notes[0].Notes[1])
+	}
+	if g := texts(got.Notes[1].Notes); !slices.Equal(g, []string{"noted without focusing"}) {
+		t.Errorf("noted-only notes = %q", g)
+	}
+	if len(got.Tasks) != 1 {
+		t.Errorf("tasks with focused time = %+v; a note alone is not focus", got.Tasks)
+	}
+}
+
+func TestDay_UnfiledNotesOfTheDayAndFilingKeepsTheDayWritten(t *testing.T) {
+	r := newReportRig(t)
+	id := r.task(t, "later filed")
+	r.note(t, 0, 0, "stray yesterday", at(29, 10, 0))
+	r.note(t, 0, 0, "stray today", at(30, 10, 0))
+	r.note(t, 0, 0, "filed after", at(29, 18, 0))
+
+	got := r.day(t, at(29, 12, 0))
+	if g := texts(got.Unfiled); !slices.Equal(g, []string{"stray yesterday", "filed after"}) {
+		t.Errorf("unfiled = %q", g)
+	}
+
+	notes, _ := r.tracker.UnfiledNotes(ctx)
+	for _, n := range notes {
+		if n.Text == "filed after" {
+			if _, err := r.tracker.FileNote(ctx, n.ID, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got = r.day(t, at(29, 12, 0))
+	if g := texts(got.Unfiled); !slices.Equal(g, []string{"stray yesterday"}) {
+		t.Errorf("unfiled after filing = %q", g)
+	}
+	if len(got.Notes) != 1 || got.Notes[0].Task.ID != id || !slices.Equal(texts(got.Notes[0].Notes), []string{"filed after"}) {
+		t.Errorf("the filed note belongs to its task on the day it was written: %+v", got.Notes)
+	}
+}
+
+func TestDay_FinishedTasksAreTheDoneOnesWithinTheDayOldestFirst(t *testing.T) {
+	r := newReportRig(t)
+	late := r.finished(t, "late", at(29, 17, 0))
+	early := r.finished(t, "early", at(29, 0, 0)) // the start counts
+	r.finished(t, "the day before", at(28, 23, 59))
+	r.finished(t, "the next day", at(30, 0, 0)) // the end does not
+	r.finished(t, "no date", time.Time{})       // finished before done_at existed
+	active := r.task(t, "active")
+	_ = active
+	reopened := r.task(t, "reopened")
+	if err := r.store.Update(ctx, func(tx core.Tx) error {
+		// A stale date on a task that is not Done is not a finish.
+		task, _ := tx.Task(reopened)
+		when := at(29, 12, 0)
+		task.DoneAt = &when
+		return tx.SaveTask(task)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := r.day(t, at(29, 12, 0))
+	var ids []core.TaskID
+	for _, task := range got.Finished {
+		ids = append(ids, task.ID)
+	}
+	if !slices.Equal(ids, []core.TaskID{early, late}) {
+		t.Errorf("finished = %v, want %v then %v", ids, early, late)
+	}
+}
+
+func TestReport_ThePeriodReportsCarryTheNotesAndFinishedTasksToo(t *testing.T) {
+	r := newReportRig(t)
+	id := r.task(t, "work")
+	r.session(t, id, at(28, 9, 0), 0, 0)
+	r.note(t, id, 0, "monday", at(28, 10, 0))
+	r.note(t, id, 0, "last week", at(27, 10, 0))
+	r.note(t, 0, 0, "stray", at(30, 8, 0))
+	r.finished(t, "done tuesday", at(29, 12, 0))
+
+	week := r.report(t, core.PeriodWeek)
+	if len(week.Notes) != 1 || !slices.Equal(texts(week.Notes[0].Notes), []string{"monday"}) {
+		t.Errorf("week notes = %+v", week.Notes)
+	}
+	if len(week.Unfiled) != 1 || len(week.Finished) != 1 {
+		t.Errorf("week unfiled %d, finished %d; want 1 and 1", len(week.Unfiled), len(week.Finished))
+	}
+	today := r.report(t, core.PeriodToday)
+	if len(today.Notes) != 0 || len(today.Finished) != 0 || len(today.Unfiled) != 1 {
+		t.Errorf("today = notes %+v finished %+v unfiled %+v", today.Notes, today.Finished, today.Unfiled)
 	}
 }

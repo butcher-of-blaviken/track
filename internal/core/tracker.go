@@ -198,6 +198,11 @@ func (t *Tracker) moveTask(ctx context.Context, id TaskID, unlessRunning bool, m
 		if err := move(&task); err != nil {
 			return err
 		}
+		task.DoneAt = nil
+		if task.State == StateDone {
+			now := t.clock.Now()
+			task.DoneAt = &now
+		}
 		return tx.SaveTask(task)
 	})
 	return task, err

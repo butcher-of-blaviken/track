@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,6 +158,27 @@ func checkFixture(t *testing.T, store core.Store) {
 	}
 }
 
+// checkDoneAt is what schema 5 added: the time a Task was marked done. The "old
+// thing" task was marked done 55 minutes into the fixture's clock; a database
+// from before then has no date for it, and the Task is still Done.
+func checkDoneAt(t *testing.T, store core.Store, version int) {
+	t.Helper()
+	tasks, err := store.Tasks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		switch {
+		case task.Title == "old thing" && version >= 5:
+			if task.DoneAt == nil || !task.DoneAt.Equal(fixtureStart.Add(55*time.Minute)) {
+				t.Errorf("old thing DoneAt = %v, want %v", task.DoneAt, fixtureStart.Add(55*time.Minute))
+			}
+		case task.DoneAt != nil:
+			t.Errorf("%q has DoneAt %v, want none (schema v%d)", task.Title, task.DoneAt, version)
+		}
+	}
+}
+
 func TestOldDatabases_StillOpenUpgradeAndReadBack(t *testing.T) {
 	fixtures, err := filepath.Glob(filepath.Join("testdata", "schema_v*.db"))
 	if err != nil || len(fixtures) == 0 {
@@ -175,6 +197,10 @@ func TestOldDatabases_StillOpenUpgradeAndReadBack(t *testing.T) {
 			store := mustOpen(t, path)
 			t.Cleanup(func() { _ = store.Close() })
 			checkFixture(t, store)
+			// Facts a later schema added: earlier fixtures have no such column
+			// and must read back without them.
+			version, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(fixture), "schema_v"), ".db"))
+			checkDoneAt(t, store, version)
 		})
 	}
 }

@@ -192,3 +192,39 @@ func TestTaskStates_AReopenedTaskCanBeStartedAgain(t *testing.T) {
 		t.Errorf("Active tasks = %+v, want the reopened one", active)
 	}
 }
+
+func TestTaskStates_DoneRemembersWhenAndLeavingDoneForgetsIt(t *testing.T) {
+	r := newRig(t)
+	id := r.addTask(t, core.StateActive)
+	if task, _ := r.tracker.Task(ctx, id); task.DoneAt != nil {
+		t.Fatalf("a new task has DoneAt %v", task.DoneAt)
+	}
+
+	r.clock.Advance(2 * time.Hour)
+	doneAt := r.clock.Now()
+	task, err := r.tracker.MarkDone(ctx, id)
+	if err != nil || task.DoneAt == nil || !task.DoneAt.Equal(doneAt) {
+		t.Fatalf("MarkDone = %+v, %v; want DoneAt %v", task, err, doneAt)
+	}
+	if stored, _ := r.tracker.Task(ctx, id); stored.DoneAt == nil || !stored.DoneAt.Equal(doneAt) {
+		t.Errorf("stored DoneAt = %v, want %v", stored.DoneAt, doneAt)
+	}
+
+	r.clock.Advance(time.Hour)
+	if task, err := r.tracker.ReopenTask(ctx, id); err != nil || task.DoneAt != nil {
+		t.Fatalf("ReopenTask = %+v, %v; want no DoneAt", task, err)
+	}
+	if stored, _ := r.tracker.Task(ctx, id); stored.DoneAt != nil {
+		t.Errorf("stored DoneAt after reopening = %v", stored.DoneAt)
+	}
+
+	// Done again later is a new date; archiving a Done task is not finishing it.
+	r.clock.Advance(time.Hour)
+	again := r.clock.Now()
+	if task, _ := r.tracker.MarkDone(ctx, id); task.DoneAt == nil || !task.DoneAt.Equal(again) {
+		t.Errorf("second MarkDone DoneAt = %v, want %v", task.DoneAt, again)
+	}
+	if task, err := r.tracker.ArchiveTask(ctx, id); err != nil || task.DoneAt != nil {
+		t.Errorf("ArchiveTask = %+v, %v; want no DoneAt", task, err)
+	}
+}

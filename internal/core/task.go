@@ -34,6 +34,9 @@ type Task struct {
 	// Tags are the Task's Tag names, in first-use casing.
 	Tags      []string
 	CreatedAt time.Time
+	// DoneAt is when the Task was marked done, set while it is Done and nil
+	// otherwise. A Task finished before Track recorded this has none.
+	DoneAt *time.Time
 }
 
 // NewTask returns an unsaved Active Task with the given title.

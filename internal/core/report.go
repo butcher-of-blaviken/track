@@ -21,6 +21,14 @@ const (
 type TaskTime struct {
 	Task    Task
 	Focused time.Duration
+	// Sessions is how many Focus sessions spent time on the Task in the window.
+	Sessions int
+}
+
+// TaskNotes is the notes written on one Task in a Report's window, oldest first.
+type TaskNotes struct {
+	Task  Task
+	Notes []Note
 }
 
 // TagTime is the focused time spent on the Tasks carrying one Tag. A Task with
@@ -34,6 +42,7 @@ type TagTime struct {
 
 // Report is what was worked on in a window, in every Task state.
 type Report struct {
+	// Period is the period asked for; it is not set by Day.
 	Period   Period
 	From, To time.Time // the window, [From, To)
 	Focused  time.Duration
@@ -44,6 +53,15 @@ type Report struct {
 	// Tasks and Tags are largest first, ties by Task ID and by Tag name.
 	Tasks []TaskTime
 	Tags  []TagTime
+	// Notes are the notes written in the window onto Tasks, by Task ID, whether or
+	// not the Task had any focused time. A note keeps the time it was written when
+	// it is filed later.
+	Notes []TaskNotes
+	// Unfiled are the notes written in the window that belong to no Task yet.
+	Unfiled []Note
+	// Finished are the Tasks marked done in the window and still Done, earliest
+	// first. A Task finished before Track recorded when is never listed.
+	Finished []Task
 }
 
 // windowFor returns the window of a period around now, in now's location.
@@ -99,9 +117,23 @@ func (t *Tracker) Today(ctx context.Context) (DaySummary, error) {
 // time is clipped to the window, so one that crosses midnight counts in both
 // days, and a running one counts up to now.
 func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
+	from, to := windowFor(p, t.clock.Now())
+	r, err := t.reportWindow(ctx, from, to)
+	r.Period = p
+	return r, err
+}
+
+// Day is the Report of the local calendar day that contains the given time, in
+// that time's location, which may be any day, not only today.
+func (t *Tracker) Day(ctx context.Context, day time.Time) (Report, error) {
+	y, m, d := day.Date()
+	from := time.Date(y, m, d, 0, 0, 0, 0, day.Location())
+	return t.reportWindow(ctx, from, from.AddDate(0, 0, 1))
+}
+
+func (t *Tracker) reportWindow(ctx context.Context, from, to time.Time) (Report, error) {
 	now := t.clock.Now()
-	from, to := windowFor(p, now)
-	r := Report{Period: p, From: from, To: to}
+	r := Report{From: from, To: to}
 
 	tasks, err := t.store.Tasks(ctx)
 	if err != nil {
@@ -117,6 +149,7 @@ func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
 	}
 
 	perTask := map[TaskID]time.Duration{}
+	sessionsOn := map[TaskID]int{}
 	for _, s := range sessions {
 		if !s.StartedAt.Before(from) && s.StartedAt.Before(to) && s.SkippedBreak > 0 {
 			r.Overrides++
@@ -128,13 +161,14 @@ func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
 		r.Focused += clipped
 		r.Sessions++
 		perTask[s.TaskID] += clipped
+		sessionsOn[s.TaskID]++
 	}
 
 	perTag := map[string]time.Duration{}
 	var untagged time.Duration
 	for id, focused := range perTask {
 		task := byID[id]
-		r.Tasks = append(r.Tasks, TaskTime{Task: task, Focused: focused})
+		r.Tasks = append(r.Tasks, TaskTime{Task: task, Focused: focused, Sessions: sessionsOn[id]})
 		if len(task.Tags) == 0 {
 			untagged += focused
 		}
@@ -154,5 +188,29 @@ func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
 	if untagged > 0 {
 		r.Tags = append(r.Tags, TagTime{Untagged: true, Focused: untagged})
 	}
+
+	notes, err := t.notesWhere(ctx, func(n Note) bool { return !n.CreatedAt.Before(from) && n.CreatedAt.Before(to) })
+	if err != nil {
+		return Report{}, err
+	}
+	perTaskNotes := map[TaskID][]Note{}
+	for _, n := range notes {
+		if n.TaskID == 0 {
+			r.Unfiled = append(r.Unfiled, n)
+			continue
+		}
+		perTaskNotes[n.TaskID] = append(perTaskNotes[n.TaskID], n)
+	}
+	for id, list := range perTaskNotes {
+		r.Notes = append(r.Notes, TaskNotes{Task: byID[id], Notes: list})
+	}
+	slices.SortFunc(r.Notes, func(a, b TaskNotes) int { return cmp.Compare(a.Task.ID, b.Task.ID) })
+
+	for _, task := range tasks {
+		if task.State == StateDone && task.DoneAt != nil && !task.DoneAt.Before(from) && task.DoneAt.Before(to) {
+			r.Finished = append(r.Finished, task)
+		}
+	}
+	slices.SortStableFunc(r.Finished, func(a, b Task) int { return cmp.Or(a.DoneAt.Compare(*b.DoneAt), cmp.Compare(a.ID, b.ID)) })
 	return r, nil
 }
