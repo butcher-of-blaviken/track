@@ -57,6 +57,44 @@ func windowFor(p Period, now time.Time) (time.Time, time.Time) {
 	return from, from.AddDate(0, 0, 1)
 }
 
+// focusedIn is the time the session spent focusing inside [from, to) at now: its
+// elapsed time, which stops at the planned end, clipped to the window.
+func (s FocusSession) focusedIn(from, to, now time.Time) time.Duration {
+	start, end := s.StartedAt, s.StartedAt.Add(s.Elapsed(now))
+	if start.Before(from) {
+		start = from
+	}
+	if end.After(to) {
+		end = to
+	}
+	return end.Sub(start)
+}
+
+// DaySummary is the total for the local calendar day of the clock.
+type DaySummary struct {
+	Focused  time.Duration
+	Sessions int
+}
+
+// Today sums the day's Focus sessions the way Report does, without the per-Task
+// and per-Tag tables, so a header can show it cheaply.
+func (t *Tracker) Today(ctx context.Context) (DaySummary, error) {
+	now := t.clock.Now()
+	from, to := windowFor(PeriodToday, now)
+	sessions, err := t.store.Sessions(ctx)
+	if err != nil {
+		return DaySummary{}, err
+	}
+	var d DaySummary
+	for _, s := range sessions {
+		if clipped := s.focusedIn(from, to, now); clipped > 0 {
+			d.Focused += clipped
+			d.Sessions++
+		}
+	}
+	return d, nil
+}
+
 // Report summarises the window of a period around the clock's now. A session's
 // time is clipped to the window, so one that crosses midnight counts in both
 // days, and a running one counts up to now.
@@ -83,14 +121,7 @@ func (t *Tracker) Report(ctx context.Context, p Period) (Report, error) {
 		if !s.StartedAt.Before(from) && s.StartedAt.Before(to) && s.SkippedBreak > 0 {
 			r.Overrides++
 		}
-		start, end := s.StartedAt, s.StartedAt.Add(s.Elapsed(now))
-		if start.Before(from) {
-			start = from
-		}
-		if end.After(to) {
-			end = to
-		}
-		clipped := end.Sub(start)
+		clipped := s.focusedIn(from, to, now)
 		if clipped <= 0 {
 			continue
 		}

@@ -56,7 +56,35 @@ type refreshMsg struct {
 	// lastNote is the newest note of sessionTask, or nil. It is read only until
 	// the resume prompt has been decided.
 	lastNote *core.Note
+	// today is the header's total for the day, set only when it was read this
+	// time; todayKey and todayAt are what the snapshot looked like then.
+	today    *core.DaySummary
+	todayKey todayKey
 	err      error
+}
+
+// todayKey is what a refresh looked like when the day's total was last read:
+// the total can only have changed if the session or the phase did, or time has
+// passed. todayEvery bounds how stale a running session's share may get.
+type todayKey struct {
+	session core.SessionID
+	phase   core.Phase
+	at      time.Time
+}
+
+const todayEvery = 30 * time.Second
+
+func keyOf(snap core.Snapshot) todayKey {
+	k := todayKey{phase: snap.Phase, at: snap.At}
+	if snap.Session != nil {
+		k.session = snap.Session.ID
+	}
+	return k
+}
+
+// stale reports that the total read at k may be out of date at now.
+func (k todayKey) stale(now todayKey) bool {
+	return k.session != now.session || k.phase != now.phase || now.at.Before(k.at) || now.at.Sub(k.at) >= todayEvery
 }
 
 // sessionMsg carries the result of starting or stopping a session.
@@ -182,6 +210,12 @@ type Model struct {
 	detail       core.TaskDetail
 	detailLoaded bool
 	detailTop    int
+
+	// today is the header's total for the day, read when todayKey says it may
+	// have changed. todayRead is whether it has been read at all.
+	today     core.DaySummary
+	todayRead bool
+	todayKey  todayKey
 
 	// period is the report's window, and report what was last read for it.
 	period       core.Period
@@ -326,6 +360,7 @@ func defaultTick() tea.Cmd {
 // fetch reads the snapshot and the Active Tasks off the UI goroutine.
 func (m Model) fetch() tea.Cmd {
 	tracker, wantNote, all, wantNotes, wantInbox, detailFor, reportFor := m.tracker, m.resume != resumeOver, m.showAll, m.searching(), m.inboxOpen(), m.detailFor, m.reportPeriod()
+	todayRead, todayKey := m.todayRead, m.todayKey
 	return func() tea.Msg {
 		ctx := context.Background()
 		snap, err := tracker.Snapshot(ctx)
@@ -333,6 +368,13 @@ func (m Model) fetch() tea.Cmd {
 			return refreshMsg{err: err}
 		}
 		msg := refreshMsg{snap: snap, all: all}
+		if key := keyOf(snap); !todayRead || todayKey.stale(key) {
+			day, err := tracker.Today(ctx)
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			msg.today, msg.todayKey = &day, key
+		}
 		states := []core.State{core.StateActive}
 		if all {
 			states = nil
@@ -461,6 +503,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.snap, m.sessionTask, m.unfiled, m.loaded = msg.snap, msg.sessionTask, msg.unfiled, true
+			if msg.today != nil {
+				m.today, m.todayRead, m.todayKey = *msg.today, true, msg.todayKey
+			}
 			m.notes = nil
 			if msg.report != nil && m.mode == modeReport && msg.report.Period == m.period {
 				m.report, m.reportLoaded = *msg.report, true
