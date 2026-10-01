@@ -24,7 +24,7 @@ type theme struct {
 	needsYou lipgloss.Style // a hand-off is due, notes are waiting
 	danger   lipgloss.Style // errors, and only errors
 	muted    lipgloss.Style // timestamps, labels, Done and Archived tasks
-	selected lipgloss.Style // the cursor row: reverse video of the accent
+	selected lipgloss.Style // the cursor row: reverse video of the terminal's own colours
 	match    lipgloss.Style // the characters a search matched
 	edge     lipgloss.Style // the border of the panel that has the keyboard
 	tags     [4]lipgloss.Style
@@ -39,9 +39,10 @@ func newTheme() theme {
 		needsYou: fg(lipgloss.Yellow),
 		danger:   fg(lipgloss.Red),
 		muted:    lipgloss.NewStyle().Faint(true),
-		// Reverse puts the terminal's own background colour on the text, so the
-		// bar reads on light and dark themes alike.
-		selected: fg(lipgloss.Blue).Reverse(true),
+		// Reverse swaps the terminal's own foreground and background, the one pair
+		// guaranteed to contrast. Colouring the bar blue did not: ANSI blue is a very
+		// dark blue on many black terminals, and the text on it was hard to read.
+		selected: lipgloss.NewStyle().Reverse(true),
 		match:    lipgloss.NewStyle().Bold(true).Underline(true),
 		edge:     fg(lipgloss.Blue),
 		tags:     [4]lipgloss.Style{fg(lipgloss.Cyan), fg(lipgloss.Yellow), fg(lipgloss.Magenta), fg(lipgloss.Green)},

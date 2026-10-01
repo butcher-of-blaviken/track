@@ -48,8 +48,8 @@ func TestTheme_TheSelectedRowIsOneReverseBarAcrossChipsAndMatches(t *testing.T) 
 	start := strings.Index(text, "> write the PRD")
 	end := strings.Index(text, "#Q1") + len("#Q1")
 	for _, c := range line[len([]rune(text[:start])):len([]rune(text[:end]))] {
-		if !c.reverse || c.fg != ansiBlue {
-			t.Fatalf("%q is %+v inside the selected row, want reverse blue throughout", string(c.r), c.attrs)
+		if !c.reverse || c.fg >= 0 {
+			t.Fatalf("%q is %+v inside the selected row, want reverse in the terminal's own colours throughout", string(c.r), c.attrs)
 		}
 	}
 	if len(line) != 60 || !line[59].reverse {
@@ -195,13 +195,13 @@ func TestTheme_TheBellBannerIsColouredByKind(t *testing.T) {
 	}
 }
 
-func TestTheme_TheInboxCursorRowIsReverseAccent(t *testing.T) {
+func TestTheme_TheInboxCursorRowIsReverseVideo(t *testing.T) {
 	r := newRig(t)
 	r.unfile(t, "first note")
 	r.unfile(t, "second note")
 	m := press(send(booted(r.newModel()), tea.WindowSizeMsg{Width: 60, Height: 20}), keyI)
-	if got := styleOf(t, m, "first note"); !got.reverse || got.fg != ansiBlue {
-		t.Errorf("selected note = %+v, want reverse blue", got)
+	if got := styleOf(t, m, "first note"); !got.reverse || got.fg >= 0 {
+		t.Errorf("selected note = %+v, want reverse in the terminal's own colours", got)
 	}
 	if got := styleOf(t, m, "second note"); got.reverse {
 		t.Errorf("unselected note is reverse: %+v", got)
