@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
+
 	"github.com/butcher-of-blaviken/track/internal/clock"
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -296,11 +298,11 @@ func TestThemesAreTheDefaultAndEveryBuiltInPalette(t *testing.T) {
 		if name == config.ThemeDefault {
 			continue
 		}
-		if p, ok := tui.BuiltinPalette(name); !ok || themePalette(name) != p {
+		if p, ok := tui.BuiltinPalette(name); !ok || themePalette(name, colorprofile.TrueColor) != p {
 			t.Errorf("themePalette(%q) is not the built-in palette", name)
 		}
 	}
-	if themePalette(config.ThemeDefault) != tui.DefaultPalette() {
+	if themePalette(config.ThemeDefault, colorprofile.TrueColor) != tui.DefaultPalette() {
 		t.Error("the default theme is not the default palette")
 	}
 }

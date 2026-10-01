@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // The built-in palettes are fixed RGB colours, so the app looks the same whatever
@@ -102,4 +103,17 @@ func PaletteNames() []string {
 func BuiltinPalette(name string) (Palette, bool) {
 	p, ok := palettes[name]
 	return p, ok
+}
+
+// FitPalette is p if the terminal's colour profile can show it, and the default
+// palette if not. Bubble Tea turns RGB colours into the nearest of the terminal's
+// 256 colours, which keeps the palettes readable. With 16 or no colours it picks
+// arbitrary ones, and NO_COLOR strips them, leaving the cursor row unmarked, so
+// the default palette's reverse video and faint text, which need no colour, are
+// used instead.
+func FitPalette(p Palette, profile colorprofile.Profile) Palette {
+	if profile < colorprofile.ANSI256 {
+		return DefaultPalette()
+	}
+	return p
 }
