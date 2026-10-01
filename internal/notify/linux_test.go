@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -196,7 +197,9 @@ func TestLinux_NoBusAtTheAddressIsErrNoBusAndPromptly(t *testing.T) {
 
 // With no session bus to find, godbus would run dbus-launch to start one, which
 // on a headless machine spawns a daemon as a side effect of a notification. The
-// notifier must not: a stand-in dbus-launch on PATH records whether it ran.
+// notifier must not, and must not depend on what the machine running the test has
+// (a CI runner has a real session bus at /run/user/<uid>/bus), so it is given an
+// environment with none, and a stand-in dbus-launch on PATH records whether it ran.
 func TestLinux_NoSessionBusIsErrNoBusAndNeverLaunchesOne(t *testing.T) {
 	bin := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "launched")
@@ -205,15 +208,50 @@ func TestLinux_NoSessionBusIsErrNoBusAndNeverLaunchesOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir()) // with no bus socket in it
 
-	n := NewLinux()
-	if err := n.Notify(context.Background(), Event{Title: "T"}); !errors.Is(err, ErrNoBus) {
-		t.Errorf("err = %v, want ErrNoBus", err)
+	for name, env := range map[string]map[string]string{
+		"nothing set":     {},
+		"autolaunch":      {"DBUS_SESSION_BUS_ADDRESS": "autolaunch:"},
+		"empty runtime":   {"XDG_RUNTIME_DIR": t.TempDir()},
+		"missing runtime": {"XDG_RUNTIME_DIR": filepath.Join(t.TempDir(), "gone")},
+	} {
+		n := NewLinux()
+		n.getenv = func(k string) string { return env[k] }
+		if err := n.Notify(context.Background(), Event{Title: "T"}); !errors.Is(err, ErrNoBus) {
+			t.Errorf("%s: err = %v, want ErrNoBus", name, err)
+		}
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("the notifier ran dbus-launch, which starts a new bus daemon")
+	}
+}
+
+func TestSessionBusAddress_IsTheEnvironmentsThenSystemdsSocketAndNothingElse(t *testing.T) {
+	runtime, err := os.MkdirTemp("", "track-rt") // short: a unix socket path is limited to about 100 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	socket, err := net.Listen("unix", filepath.Join(runtime, "bus")) // what systemd leaves there
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = socket.Close() })
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		want string
+		fail bool
+	}{
+		"the specification's variable": {map[string]string{"DBUS_SESSION_BUS_ADDRESS": "unix:path=/x/bus"}, "unix:path=/x/bus", false},
+		"it wins over the runtime dir": {map[string]string{"DBUS_SESSION_BUS_ADDRESS": "unix:path=/x/bus", "XDG_RUNTIME_DIR": runtime}, "unix:path=/x/bus", false},
+		"systemd's socket":             {map[string]string{"XDG_RUNTIME_DIR": runtime}, "unix:path=" + filepath.Join(runtime, "bus"), false},
+		"autolaunch is none":           {map[string]string{"DBUS_SESSION_BUS_ADDRESS": "autolaunch:"}, "", true},
+		"nothing":                      {map[string]string{}, "", true},
+	} {
+		got, err := sessionBusAddress(func(k string) string { return tc.env[k] })
+		if (err != nil) != tc.fail || got != tc.want {
+			t.Errorf("%s: = %q, %v; want %q, failure %v", name, got, err, tc.want, tc.fail)
+		}
 	}
 }
 
