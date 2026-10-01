@@ -34,5 +34,5 @@ The colours Track is drawn in, chosen by the `theme` config key. The `default` T
 _Avoid_: Skin, colour scheme (that is the terminal's own)
 
 **Palette**:
-A fixed set of RGB colours, one for each thing the screen means: the accent, Focus, Break, needs-you, errors, Tag colours, secondary text and the cursor row. It does not paint the terminal's background, so each one is made for a light or a dark terminal.
+A fixed set of RGB colours, one for each thing the screen means: the accent, Focus, Break, needs-you, errors, Tag colours, secondary text and the cursor row. While Track runs it sets the terminal's own background and text colour to its own, and restores them on exit.
 _Avoid_: Colour map, swatch set

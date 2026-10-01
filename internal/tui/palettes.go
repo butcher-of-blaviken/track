@@ -9,12 +9,9 @@ import (
 )
 
 // The built-in palettes are fixed RGB colours, so the app looks the same whatever
-// colours the terminal's own theme has. Each is chosen for the terminal
-// background it names: the app does not paint the background, so a dark palette
-// in a light terminal is the user's mismatch.
-//
-// A palette's Background is that terminal background, which the badges and the
-// cursor bar use as their text colour.
+// colours the terminal's own theme has. Each sets the terminal's background and
+// text colour while the app runs, so a dark palette is dark in a light terminal
+// too. The badges and the cursor bar use the Background as their text colour.
 
 // scheme is a terminal colour scheme's background, text and six hues.
 type scheme struct {
@@ -46,6 +43,7 @@ func (s scheme) palette() Palette {
 		SelectionFG: c(s.bg),
 		SelectionBG: c(s.blue),
 		Background:  c(s.bg),
+		Foreground:  c(s.fg),
 	}
 }
 

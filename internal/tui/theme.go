@@ -28,9 +28,13 @@ type Palette struct {
 	// SelectionFG and SelectionBG paint the cursor row. A nil SelectionBG makes it
 	// reverse video, the terminal's own foreground and background swapped.
 	SelectionFG, SelectionBG color.Color
-	// Background is the text colour of a badge, which sits on a phase colour. Nil
-	// makes the badge reverse video, so its text is the terminal's own background.
-	Background color.Color
+	// Background and Foreground are the terminal's background and text colours
+	// while the app runs: they are set on the terminal and put back on exit. Nil
+	// leaves the terminal's own, which is how the default palette matches it. A
+	// Background is also the text colour of a badge, which sits on a phase colour;
+	// without one the badge is reverse video, so its text is the terminal's own
+	// background.
+	Background, Foreground color.Color
 }
 
 // DefaultPalette uses only the 16 ANSI colours and the terminal's own colours, so

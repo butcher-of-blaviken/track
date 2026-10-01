@@ -43,7 +43,7 @@ func TestPalettes_EveryColourReadsOnItsBackground(t *testing.T) {
 		// same ratio as that colour on the Background.
 		roles := map[string]color.Color{
 			"accent": p.Accent, "focus": p.Focus, "rest": p.Rest, "needs you": p.NeedsYou, "danger": p.Danger, "muted": p.Muted,
-			"tag 0": p.Tags[0], "tag 1": p.Tags[1], "tag 2": p.Tags[2], "tag 3": p.Tags[3],
+			"text": p.Foreground, "tag 0": p.Tags[0], "tag 1": p.Tags[1], "tag 2": p.Tags[2], "tag 3": p.Tags[3],
 		}
 		for role, c := range roles {
 			if got := contrast(c, p.Background); got < minContrast {
@@ -72,7 +72,7 @@ func TestPalettes_AreCompleteAndNamed(t *testing.T) {
 		}
 		for role, c := range map[string]color.Color{
 			"accent": p.Accent, "focus": p.Focus, "rest": p.Rest, "needs you": p.NeedsYou, "danger": p.Danger, "muted": p.Muted,
-			"selection fg": p.SelectionFG, "selection bg": p.SelectionBG, "background": p.Background,
+			"selection fg": p.SelectionFG, "selection bg": p.SelectionBG, "background": p.Background, "foreground": p.Foreground,
 			"tag 0": p.Tags[0], "tag 1": p.Tags[1], "tag 2": p.Tags[2], "tag 3": p.Tags[3],
 		} {
 			if c == nil {
@@ -122,5 +122,25 @@ func TestFitPalette_KeepsThePaletteOnlyWhereTheTerminalCanShowIt(t *testing.T) {
 		if !wantOwn && got != tui.DefaultPalette() {
 			t.Errorf("%v: fell back to something other than the default palette", profile)
 		}
+	}
+}
+
+// A palette sets the terminal's own background and text colour while the app
+// runs; the default theme never touches them.
+func TestPalette_SetsTheTerminalColoursAndTheDefaultThemeDoesNot(t *testing.T) {
+	r := newRig(t)
+	one, _ := tui.BuiltinPalette("one-dark")
+	m := tui.New(r.tracker, tui.WithTick(noTick), tui.WithTheme(one))
+	v := booted(m).View()
+	if v.BackgroundColor != one.Background || v.ForegroundColor != one.Foreground {
+		t.Errorf("view colours = %v on %v, want the palette's %v on %v", v.ForegroundColor, v.BackgroundColor, one.Foreground, one.Background)
+	}
+	if v.BackgroundColor == nil || v.ForegroundColor == nil {
+		t.Error("a palette left the terminal's own colours")
+	}
+
+	v = booted(r.newModel()).View()
+	if v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Errorf("the default theme set the terminal's colours: %v on %v", v.ForegroundColor, v.BackgroundColor)
 	}
 }
