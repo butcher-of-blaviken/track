@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # The Linux notifier is tested against a real dbus-daemon, and CI fails if it is missing.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus
       - run: go vet ./...
       - uses: golangci/golangci-lint-action@v8
         with:

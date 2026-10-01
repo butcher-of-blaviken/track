@@ -319,7 +319,11 @@ func TestNotifierFor_OnlyDesktopAsksForOneAndAnUnsupportedPlatformShowsNothing(t
 	} else if _, ok := got.(*notify.MacOS); !ok {
 		t.Errorf("desktop on macOS: notifier = %T, want *notify.MacOS", got)
 	}
-	// Linux's own ticket adds its case; until then a platform with none shows nothing.
+	if got := notifierFor(config.NotificationsDesktop, "linux"); got == (notify.Nop{}) {
+		t.Error("desktop on Linux shows nothing")
+	} else if _, ok := got.(*notify.Linux); !ok {
+		t.Errorf("desktop on Linux: notifier = %T, want *notify.Linux", got)
+	}
 	if got := notifierFor(config.NotificationsDesktop, "plan9"); got != (notify.Nop{}) {
 		t.Errorf("desktop on a platform with none: notifier = %T, want none, and no error", got)
 	}
