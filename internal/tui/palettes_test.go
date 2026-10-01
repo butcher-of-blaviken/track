@@ -5,6 +5,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
+
 	"github.com/butcher-of-blaviken/track/internal/tui"
 )
 
@@ -80,5 +82,45 @@ func TestPalettes_AreCompleteAndNamed(t *testing.T) {
 	}
 	if _, ok := tui.BuiltinPalette("nope"); ok {
 		t.Error("an unknown name has a palette")
+	}
+}
+
+// Bubble Tea turns RGB colours into the nearest of 256, so on such a terminal the
+// palettes must still read, if a little less than in truecolor.
+func TestPalettes_StillReadIn256Colours(t *testing.T) {
+	const floor = 2.5
+	to256 := func(c color.Color) color.Color { return colorprofile.ANSI256.Convert(c) }
+	for _, name := range tui.PaletteNames() {
+		p, _ := tui.BuiltinPalette(name)
+		bg := to256(p.Background)
+		roles := map[string]color.Color{
+			"accent": p.Accent, "focus": p.Focus, "rest": p.Rest, "needs you": p.NeedsYou, "danger": p.Danger, "muted": p.Muted,
+			"tag 0": p.Tags[0], "tag 1": p.Tags[1], "tag 2": p.Tags[2], "tag 3": p.Tags[3],
+		}
+		for role, c := range roles {
+			if got := contrast(to256(c), bg); got < floor {
+				t.Errorf("%s: %s is %.2f:1 in 256 colours, want at least %.1f:1", name, role, got, floor)
+			}
+		}
+	}
+}
+
+func TestFitPalette_KeepsThePaletteOnlyWhereTheTerminalCanShowIt(t *testing.T) {
+	one, _ := tui.BuiltinPalette("one-dark")
+	for profile, wantOwn := range map[colorprofile.Profile]bool{
+		colorprofile.TrueColor: true,
+		colorprofile.ANSI256:   true,
+		colorprofile.ANSI:      false, // 16 colours: the nearest ones are arbitrary
+		colorprofile.ASCII:     false, // NO_COLOR: the cursor row would have no mark
+		colorprofile.NoTTY:     false,
+		colorprofile.Unknown:   false,
+	} {
+		got := tui.FitPalette(one, profile)
+		if own := got == one; own != wantOwn {
+			t.Errorf("%v: kept the palette = %v, want %v", profile, own, wantOwn)
+		}
+		if !wantOwn && got != tui.DefaultPalette() {
+			t.Errorf("%v: fell back to something other than the default palette", profile)
+		}
 	}
 }

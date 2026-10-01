@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/butcher-of-blaviken/track/internal/clock"
 	"github.com/butcher-of-blaviken/track/internal/config"
@@ -222,17 +223,25 @@ func runTUI(opts options, getenv func(string) string) error {
 	}
 	defer func() { _ = a.close() }()
 
-	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithTheme(themePalette(settings.Theme)), tui.WithDocs(readmeText))).Run()
+	// Bubble Tea would detect the same profile; doing it here lets the theme depend
+	// on it, and passing it on keeps the two in step.
+	profile := colorprofile.Detect(os.Stdout, os.Environ())
+	_, err = tea.NewProgram(
+		tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithTheme(themePalette(settings.Theme, profile)), tui.WithDocs(readmeText)),
+		tea.WithColorProfile(profile),
+	).Run()
 	return err
 }
 
-// themePalette is the palette the theme setting names. Load has already checked
-// the name, so one that is not built in is the default theme.
-func themePalette(name string) tui.Palette {
-	if p, ok := tui.BuiltinPalette(name); ok {
-		return p
+// themePalette is the palette the theme setting names, or the default palette if
+// the terminal cannot show it well. Load has already checked the name, so one
+// that is not built in is the default theme.
+func themePalette(name string, profile colorprofile.Profile) tui.Palette {
+	p, ok := tui.BuiltinPalette(name)
+	if !ok {
+		return tui.DefaultPalette()
 	}
-	return tui.DefaultPalette()
+	return tui.FitPalette(p, profile)
 }
 
 // loadSettings reads the config file over the defaults. A file named with

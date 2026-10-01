@@ -1431,3 +1431,29 @@ func TestTheReportScreenStepsBackADayAndCopiesItsMarkdown(t *testing.T) {
 	tm.press("]")
 	tm.waitFor(`Report: Today`, wait)
 }
+
+// A theme is a fixed palette, which the terminal gets as RGB colours: tmux, like
+// most terminals, shows them as the nearest of its 256. With NO_COLOR it must fall
+// back to the default theme, whose cursor row is reverse video, because stripping
+// the palette's colours would leave that row unmarked.
+func TestThemeFallsBackToTheDefaultWithoutColour(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runTrack(t, "--data-dir", dir, "add", "read the docs")
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, []byte("theme = \"one-dark\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tm := launch(t, nil, "--data-dir", dir, "--config", cfg)
+	tm.waitFor(`> read the docs`, wait)
+	if p := sgrAt(t, tm.styledScreen(), "> read the docs"); p[7] || !p[48] {
+		t.Errorf("with colour the cursor row has SGR %v, want the palette's own background (48) and no reverse (7)", p)
+	}
+
+	plain := launch(t, []string{"NO_COLOR=1"}, "--data-dir", dir, "--config", cfg)
+	plain.waitFor(`> read the docs`, wait)
+	if p := sgrAt(t, plain.styledScreen(), "> read the docs"); !p[7] {
+		t.Errorf("with NO_COLOR the cursor row has SGR %v, want reverse (7) from the default theme", p)
+	}
+}
