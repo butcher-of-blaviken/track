@@ -50,9 +50,9 @@ func (m Model) phaseLine() string {
 		if m.sessionTask != nil {
 			title = m.sessionTask.Title
 		}
-		return m.progressLine(" Focus ", lipgloss.Magenta, title, m.snap.Session.PlannedDuration)
+		return m.progressLine(" Focus ", m.th.p.Focus, title, m.snap.Session.PlannedDuration)
 	case core.PhaseBreak:
-		return m.progressLine(" Break ", lipgloss.Green, "", m.snap.Session.BreakDuration)
+		return m.progressLine(" Break ", m.th.p.Rest, "", m.snap.Session.BreakDuration)
 	}
 	line := m.th.muted.Render("Idle")
 	if len(m.tasks) > 0 {
