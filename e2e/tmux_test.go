@@ -97,8 +97,13 @@ func (tm *term) bells() int {
 	if err != nil {
 		return 0 // nothing written yet
 	}
-	return bytes.Count(data, []byte{'\a'})
+	// A BEL that ends an OSC sequence, such as the query for the terminal's
+	// background colour, is a terminator and not a bell.
+	return bytes.Count(osc.ReplaceAll(data, nil), []byte{'\a'})
 }
+
+// osc matches an operating system command, ESC ] ... BEL, which ends in a BEL.
+var osc = regexp.MustCompile(`\x1b\][^\x07\x1b]*\x07`)
 
 // waitForBells waits until at least n bells have been rung.
 func (tm *term) waitForBells(n int, timeout time.Duration) {

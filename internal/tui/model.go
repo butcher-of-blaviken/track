@@ -141,7 +141,7 @@ func WithFocusDuration(d time.Duration) Option {
 
 // WithTheme sets the colours the app is drawn in. The default is DefaultPalette.
 func WithTheme(p Palette) Option {
-	return func(m *Model) { m.th = newThemeFrom(p) }
+	return func(m *Model) { m.pal, m.th = p, newThemeFrom(p) }
 }
 
 // WithDocs sets the documentation the H key opens, shown as plain text.
@@ -255,6 +255,9 @@ type Model struct {
 	keys keyMap
 	help help.Model
 	th   theme
+	// pal is the palette th was made from, kept to make it again when the
+	// terminal says whether its background is dark.
+	pal Palette
 
 	bell ringState
 
@@ -339,7 +342,7 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.Placeholder = addPlaceholder
 	input.SetVirtualCursor(false)
 
-	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: help.New(), th: newTheme()}
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: help.New(), th: newTheme(), pal: DefaultPalette()}
 	for _, opt := range opts {
 		opt(&m)
 	}
@@ -506,7 +509,27 @@ func (m Model) add(text string, thenStart bool) tea.Cmd {
 }
 
 // Init implements tea.Model: read the first state and start ticking.
-func (m Model) Init() tea.Cmd { return tea.Batch(m.fetch(), m.tick()) }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.fetch(), m.tick(), m.askBackground()) }
+
+// askBackground asks the terminal for its background colour, but only if it
+// matters: a palette with a Background has its own colours, and one without takes
+// the terminal's, whose blue is too dark to read on a dark background. A terminal
+// that does not answer leaves the palette as it is.
+func (m Model) askBackground() tea.Cmd {
+	if m.pal.Background != nil {
+		return nil
+	}
+	return tea.RequestBackgroundColor
+}
+
+// onDarkBackground is the palette with the colours that do not read on a dark
+// terminal swapped for ones that do: ANSI blue is a very dark blue on many of
+// them, and bright blue is not. Normal blue stays on a light background, where
+// bright blue is faint.
+func (p Palette) onDarkBackground() Palette {
+	p.Accent = lipgloss.BrightBlue
+	return p
+}
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -534,6 +557,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		if m.pal.Background == nil && msg.IsDark() {
+			// The footer and the text input hold their own copies of the styles.
+			m.th = newThemeFrom(m.pal.onDarkBackground())
+			m.styleWidgets()
+		}
+		return m, nil
 	case TickMsg:
 		return m, tea.Batch(m.fetch(), m.tick())
 	case refreshMsg:
