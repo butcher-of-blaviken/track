@@ -1260,8 +1260,8 @@ func TestColoursReachARealTerminal(t *testing.T) {
 	tm.waitFor(`> read the docs`, wait)
 
 	styled := tm.styledScreen()
-	if p := sgrAt(t, styled, "> read the docs"); !p[7] || !p[34] {
-		t.Errorf("the selected row has SGR %v, want reverse (7) and blue (34):\n%q", p, styled)
+	if p := sgrAt(t, styled, "> read the docs"); !p[7] || p[34] {
+		t.Errorf("the selected row has SGR %v, want reverse (7) in the terminal's own colours, not blue (34):\n%q", p, styled)
 	}
 	if p := sgrAt(t, styled, "Unfiled notes"); !p[33] {
 		t.Errorf("the unfiled-notes line has SGR %v, want yellow (33)", p)
