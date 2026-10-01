@@ -222,8 +222,17 @@ func runTUI(opts options, getenv func(string) string) error {
 	}
 	defer func() { _ = a.close() }()
 
-	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithDocs(readmeText))).Run()
+	_, err = tea.NewProgram(tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithTheme(themePalette(settings.Theme)), tui.WithDocs(readmeText))).Run()
 	return err
+}
+
+// themePalette is the palette the theme setting names. Load has already checked
+// the name, so one that is not built in is the default theme.
+func themePalette(name string) tui.Palette {
+	if p, ok := tui.BuiltinPalette(name); ok {
+		return p
+	}
+	return tui.DefaultPalette()
 }
 
 // loadSettings reads the config file over the defaults. A file named with
