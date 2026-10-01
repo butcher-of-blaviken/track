@@ -57,6 +57,9 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	if opts.rest[0] == "version" {
 		return printVersion(opts.rest[1:], stdout, stderr)
 	}
+	if opts.rest[0] == "notify-test" {
+		return runNotifyTestCommand(opts.rest[1:], stdout, stderr)
+	}
 	if opts.rest[0] == "export" {
 		return runExport(opts.rest[1:], opts, getenv, stdout, stderr)
 	}
@@ -65,7 +68,7 @@ func realMain(args []string, getenv func(string) string, stdout, stderr io.Write
 	}
 	cmd, ok := findCommand(opts.rest[0])
 	if !ok {
-		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export, report, docs, version)\nRun 'track --help' for usage.\n", opts.rest[0])
+		_, _ = fmt.Fprintf(stderr, "track: unknown command %q (commands: add, note, export, report, notify-test, docs, version)\nRun 'track --help' for usage.\n", opts.rest[0])
 		return exitUsage
 	}
 	return runCommand(cmd, opts.rest[1:], opts, getenv, stdout, stderr)
@@ -155,6 +158,7 @@ func usage(w io.Writer) {
   track note <text>         save a note to the inbox, to file onto a Task later
   track export              write everything as JSON or Markdown (-f, -o FILE)
   track report              a day's work as Markdown or JSON, for a standup (--day, --standup)
+  track notify-test         send a test notification, to check that desktop notifications work
   track docs                print the documentation (in the app, press H)
   track version             print the version (also: track --version)
 

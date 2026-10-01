@@ -38,6 +38,9 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, error
 // NewMacOS is a MacOS that plays DefaultMacOSSound.
 func NewMacOS() *MacOS { return &MacOS{Sound: DefaultMacOSSound, run: execRunner} }
 
+// Name implements Named.
+func (*MacOS) Name() string { return "osascript" }
+
 // Notify implements Notifier.
 func (n *MacOS) Notify(ctx context.Context, e Event) error {
 	run := n.run

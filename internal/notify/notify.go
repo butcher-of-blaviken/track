@@ -20,6 +20,20 @@ type Notifier interface {
 	Notify(ctx context.Context, e Event) error
 }
 
+// Named is implemented by a Notifier that can say what it shows notifications
+// with, for `track notify-test` to tell the user.
+type Named interface {
+	Name() string
+}
+
+// NameOf is what n shows notifications with, or "" if it does not say.
+func NameOf(n Notifier) string {
+	if named, ok := n.(Named); ok {
+		return named.Name()
+	}
+	return ""
+}
+
 // Nop is a Notifier that shows nothing: the default, and the notifier on a
 // platform that has none.
 type Nop struct{}
