@@ -59,6 +59,8 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(m.fit(lines))
 	v.AltScreen = true
+	// Set only by a palette; the default theme leaves the terminal's own colours.
+	v.BackgroundColor, v.ForegroundColor = m.pal.Background, m.pal.Foreground
 	if m.mode != modeList && m.mode != modeConfirmBreak && m.mode != modeResume && m.mode != modeInbox && m.mode != modeDetail && m.mode != modeReport && m.mode != modeDocs && (m.height <= 0 || promptRow < m.height) {
 		c := m.input.Cursor()
 		c.X += ansi.StringWidth(m.promptLabel())

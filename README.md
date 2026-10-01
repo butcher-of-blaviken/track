@@ -130,9 +130,9 @@ By default Track uses only your terminal's own 16 colours, so it takes on whatev
 
 On a dark terminal Track asks for the background colour and uses bright blue for the accent, because plain ANSI blue is a very dark blue on many of them. A terminal that does not answer keeps plain blue.
 
-To get the same colours in any terminal, set `theme` in the config file to a fixed palette: `one-dark`, `gruvbox-dark`, `solarized-dark`, `one-light` or `solarized-light`. These use exact colours, and the cursor row is filled with the palette's accent. Track does not paint the terminal's background, so pick the palette that matches yours; a dark palette on a light terminal will not read well.
+To get the same colours in any terminal, set `theme` in the config file to a fixed palette: `one-dark`, `gruvbox-dark`, `solarized-dark`, `one-light` or `solarized-light`. A palette uses exact colours and fills the cursor row with its accent. While Track runs it also sets your terminal's background and text colour, and puts them back when you quit, so a dark palette is dark in a light terminal too. The default theme never changes your terminal's colours. A terminal that ignores the request shows the palette's text on its own background.
 
-A palette needs a terminal with 256 colours or more. With 16 colours, with no colour at all, or with the `NO_COLOR` environment variable set, Track uses the default theme instead, so the cursor row, bold and faint text still work.
+A palette needs a terminal with 256 colours or more. With 16 colours, with no colour at all, or with the `NO_COLOR` environment variable set, Track uses the default theme instead, which leaves your terminal's colours alone, so the cursor row, bold and faint text still work.
 
 ## Command line
 
