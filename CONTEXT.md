@@ -36,3 +36,7 @@ _Avoid_: Skin, colour scheme (that is the terminal's own)
 **Palette**:
 A fixed set of RGB colours, one for each thing the screen means: the accent, Focus, Break, needs-you, errors, Tag colours, secondary text and the cursor row. While Track runs it sets the terminal's own background and text colour to its own, and restores them on exit.
 _Avoid_: Colour map, swatch set
+
+**Notification**:
+A system notification (a banner, and a sound where the platform has one) raised from the operating system's own notification system on the first ring of a **bell** event, when `notifications = "desktop"`. An extra signal beside the terminal bell, which always rings. Carries no Task text. Shown only while Track runs.
+_Avoid_: Alert, popup, toast

@@ -134,6 +134,23 @@ To get the same colours in any terminal, set `theme` in the config file to a fix
 
 A palette needs a terminal with 256 colours or more. With 16 colours, with no colour at all, or with the `NO_COLOR` environment variable set, Track uses the default theme instead, which leaves your terminal's colours alone, so the cursor row, bold and faint text still work.
 
+### Notifications
+
+When a Focus session ends, and when its Break ends, Track rings the terminal bell and shows a banner in the app. Set `notifications = "desktop"` in the config file and it also raises a notification from your operating system, so you notice when Track is not the window in front of you. The bell and the banner stay either way.
+
+- **One notification for each event,** when it first rings. The bell repeats every 30 seconds until you press a key; the notification does not.
+- **It says only what happened** ("Focus complete — Break started", "Break over — ready for the next session"). It never includes a task's title, because notifications show on the lock screen and in Notification Center.
+- **It only works while Track is running.** Track has no background process, so nothing is shown when the app is closed.
+- **A notification that cannot be shown never gets in the way:** Track carries on and the bell rings.
+
+**On macOS** Track uses `osascript`, which every Mac has, and plays the Glass sound. macOS shows the banner as coming from **Script Editor**, so Script Editor has to be allowed to send notifications: open System Settings > Notifications > Script Editor and turn on Allow Notifications. Until it is, `osascript` succeeds and shows nothing, which Track cannot detect. A Focus mode or Do Not Disturb can hide the banner too.
+
+**On Linux** Track talks to your desktop's notification server over D-Bus, the interface GNOME, KDE Plasma, XFCE, dunst and mako all provide, so it does not depend on your distribution or on `notify-send`. It asks for a sound, but desktops differ in whether they play it. It needs a notification server on your D-Bus session: a minimal window manager needs dunst or mako installed, and over SSH or in a headless session there is none, so only the bell is used. Track never starts a D-Bus session of its own.
+
+On other platforms `"desktop"` shows nothing and is not an error.
+
+To check that it works, run `track notify-test`. It sends one notification and says what it did, and what to look at if nothing appeared. It works whatever `notifications` is set to, so try it before turning notifications on.
+
 ## Command line
 
 Some things are quicker without opening the app. They use the same database, and a running app picks up what they write within a second.
@@ -230,7 +247,7 @@ notifications = "off"
 
 `theme` is `"default"`, which uses the colours of your terminal's own theme, or a fixed palette: `"one-dark"`, `"gruvbox-dark"`, `"solarized-dark"`, `"one-light"` or `"solarized-light"`. See Colours and themes above.
 
-`notifications` is `"off"` (the default: the terminal bell only) or `"desktop"`, which also raises a notification from your operating system when a Focus session or a Break ends. The bell rings either way. On a platform Track has no notifier for yet, `"desktop"` shows nothing and is not an error.
+`notifications` is `"off"` (the default: the terminal bell only) or `"desktop"`, which also raises a notification from your operating system when a Focus session or a Break ends. The bell rings either way. See Notifications above.
 
 Track looks for the file at `$XDG_CONFIG_HOME/track/config.toml` if that is set to an absolute path, otherwise at `~/Library/Application Support/track/config.toml` on macOS and `~/.config/track/config.toml` elsewhere. `--config FILE` names one explicitly, and then it must exist.
 

@@ -20,7 +20,6 @@ Work is spread across many tasks and interrupted constantly. Timers exist, but t
 - Sync across machines, or multi-user features.
 - Windows support (not deliberately broken, but unsupported).
 - Pausing a Focus session.
-- Desktop (OS-level) notifications.
 - Per-Task default durations, and per-session duration overrides in the TUI.
 - Hierarchical Tags or a Project concept.
 - Rich reporting (see v2).
@@ -57,6 +56,7 @@ See CONTEXT.md. In brief: a **Task** (Active, Done or Archived) has **Tags** and
 ### Notifications
 - The terminal bell rings when a Focus session ends and when a Break ends, repeating until a keypress. Defaults: every 30s, up to 10 times, both configurable.
 - The end state is shown as an unmissable banner in the UI.
+- Added in v1.3.0: `notifications = "desktop"` also raises a system notification on the first ring of each of those events (see ADR 0005). It is off by default, only works while Track runs, and the bell is unaffected.
 
 ### Search
 - One fuzzy picker component, used for filtering the list and for choosing a Task to start.
@@ -123,7 +123,7 @@ See CONTEXT.md. In brief: a **Task** (Active, Done or Archived) has **Tags** and
 
 - Rich reporting: streaks, charts, per-day heatmaps, CSV export.
 - Windows support.
-- Desktop notifications (behind a config flag) and possibly a background daemon.
+- A background daemon, so notifications could also reach a user when the app is closed (desktop notifications themselves shipped in v1.3.0).
 - Per-Task default durations, and per-session duration overrides.
 - Homebrew core submission.
 
