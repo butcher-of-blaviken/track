@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 	"time"
@@ -248,5 +249,50 @@ func TestTheme_NoStyledLineIsWiderThanTheWindow(t *testing.T) {
 		wantNoWiderThan(t, "detail", press(m, keyL), width)
 		wantNoWiderThan(t, "report", press(m, keyR), width)
 		wantNoWiderThan(t, "help", press(m, keyHelp), width)
+	}
+}
+
+// ANSI blue is a very dark blue on many terminals, unreadable as text on a dark
+// background. The terminal is asked for its background, and the accent becomes
+// bright blue on a dark one.
+
+const ansiBrightBlue = 12
+
+func TestTheme_TheAccentIsBrightBlueOnADarkTerminalBackground(t *testing.T) {
+	r := newRig(t)
+	task := r.addTask(t, "write the PRD")
+	if _, err := r.tracker.AddNote(ctx, task.ID, "remember this"); err != nil {
+		t.Fatal(err)
+	}
+	m := send(booted(r.newModel()), tea.BackgroundColorMsg{Color: color.Black})
+	if got := styleOnLine(t, m, "enter start", "enter"); got.fg != ansiBrightBlue || !got.bold {
+		t.Errorf("footer key = %+v, want bold bright blue", got)
+	}
+	if got := styleOf(t, press(m, keyL), "Notes"); got.fg != ansiBrightBlue || !got.bold {
+		t.Errorf("Notes heading = %+v, want bold bright blue", got)
+	}
+	m = send(booted(r.newSplitModel()), tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = send(m, tea.BackgroundColorMsg{Color: color.Black})
+	if line := styledLineWith(t, m, "Tasks"); line[0].fg != ansiBrightBlue {
+		t.Errorf("the focused panel's border = %+v, want bright blue", line[0].attrs)
+	}
+}
+
+func TestTheme_TheAccentStaysBlueOnALightTerminalBackground(t *testing.T) {
+	m := send(booted(newRig(t).newModel()), tea.BackgroundColorMsg{Color: color.White})
+	if got := styleOnLine(t, m, "enter start", "enter"); got.fg != ansiBlue || !got.bold {
+		t.Errorf("footer key = %+v, want bold blue", got)
+	}
+}
+
+func TestTheme_APaletteWithItsOwnColoursIgnoresTheTerminalBackground(t *testing.T) {
+	r := newRig(t)
+	m := send(booted(themed(r)), tea.BackgroundColorMsg{Color: color.Black})
+	if got := raw(m); !strings.Contains(got, fg(0x0a, 0x0b, 0x0c)) || strings.Contains(got, ";94m") || strings.Contains(got, "[94m") {
+		t.Errorf("the accent is not the palette's:\n%q", got)
+	}
+	// It does not need to ask, either: the default palette's Init has one more command.
+	if got, def := len(collect(themed(r).Init())), len(collect(r.newModel().Init())); got >= def {
+		t.Errorf("a themed model's Init has %d messages, the default's %d: it asked for the background colour anyway", got, def)
 	}
 }
