@@ -146,6 +146,7 @@ track export --format markdown --output track.md
 track report                              # today's work as Markdown, for a standup
 track report --standup                    # yesterday and today so far
 track report --day 2026-09-30 --format json
+track notify-test                         # send a test desktop notification
 track docs                                # this README, on stdout
 track version                             # also: track --version
 ```
