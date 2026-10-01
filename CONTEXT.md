@@ -28,3 +28,11 @@ _Avoid_: Comment, memo, status
 **Unfiled note**:
 A note captured with no Task, later filed onto a Task. Once filed it is an ordinary log entry, timestamped from when it was written.
 _Avoid_: Inbox item, scratch note, draft
+
+**Theme**:
+The colours Track is drawn in, chosen by the `theme` config key. The `default` Theme uses only the terminal's own 16 ANSI colours, and so takes on the terminal's theme; every other Theme is a built-in Palette. Falls back to `default` where the terminal cannot show a Palette.
+_Avoid_: Skin, colour scheme (that is the terminal's own)
+
+**Palette**:
+A fixed set of RGB colours, one for each thing the screen means: the accent, Focus, Break, needs-you, errors, Tag colours, secondary text and the cursor row. It does not paint the terminal's background, so each one is made for a light or a dark terminal.
+_Avoid_: Colour map, swatch set

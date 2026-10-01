@@ -124,6 +124,16 @@ The report shows the day or the week by focused time per task and per tag. A day
 | `?` | help |
 | `q` | quit |
 
+### Colours and themes
+
+By default Track uses only your terminal's own 16 colours, so it takes on whatever theme your terminal has: Focus is magenta, a Break and finished work are green, anything that needs you (a hand-off due, unfiled notes) is yellow, errors are red, and the accent for headings, the footer's keys and the focused panel's border is blue. The row under the cursor is your terminal's own foreground and background swapped, which is readable on any theme. Secondary text, such as times, and Done and Archived tasks, is faint. Colour is never the only cue: Done tasks still say `(done)` and sessions still say `completed` or `stopped early`.
+
+On a dark terminal Track asks for the background colour and uses bright blue for the accent, because plain ANSI blue is a very dark blue on many of them. A terminal that does not answer keeps plain blue.
+
+To get the same colours in any terminal, set `theme` in the config file to a fixed palette: `one-dark`, `gruvbox-dark`, `solarized-dark`, `one-light` or `solarized-light`. These use exact colours, and the cursor row is filled with the palette's accent. Track does not paint the terminal's background, so pick the palette that matches yours; a dark palette on a light terminal will not read well.
+
+A palette needs a terminal with 256 colours or more. With 16 colours, with no colour at all, or with the `NO_COLOR` environment variable set, Track uses the default theme instead, so the cursor row, bold and faint text still work.
+
 ## Command line
 
 Some things are quicker without opening the app. They use the same database, and a running app picks up what they write within a second.
@@ -216,7 +226,7 @@ theme = "default"
 
 `layout` is `"auto"` or `"split"` (the panels side by side when the terminal is wide enough; the two are the same today) or `"single"` (one pane at a time, always).
 
-`theme` is `"default"`, which uses the colours of your terminal's own theme, or a fixed palette: `"one-dark"`, `"gruvbox-dark"`, `"solarized-dark"`, `"one-light"` or `"solarized-light"`. A palette does not paint the terminal's background, so pick the one that matches it.
+`theme` is `"default"`, which uses the colours of your terminal's own theme, or a fixed palette: `"one-dark"`, `"gruvbox-dark"`, `"solarized-dark"`, `"one-light"` or `"solarized-light"`. See Colours and themes above.
 
 Track looks for the file at `$XDG_CONFIG_HOME/track/config.toml` if that is set to an absolute path, otherwise at `~/Library/Application Support/track/config.toml` on macOS and `~/.config/track/config.toml` elsewhere. `--config FILE` names one explicitly, and then it must exist.
 
