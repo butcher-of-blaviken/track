@@ -220,6 +220,7 @@ bell_interval = "30s"
 bell_repeats = 10
 layout = "auto"
 theme = "default"
+notifications = "off"
 ```
 
 `bell_interval` and `bell_repeats` say how the terminal bell repeats when a session or Break ends: once, then `bell_repeats` more times, one interval apart.
@@ -227,6 +228,8 @@ theme = "default"
 `layout` is `"auto"` or `"split"` (the panels side by side when the terminal is wide enough; the two are the same today) or `"single"` (one pane at a time, always).
 
 `theme` is `"default"`, which uses the colours of your terminal's own theme, or a fixed palette: `"one-dark"`, `"gruvbox-dark"`, `"solarized-dark"`, `"one-light"` or `"solarized-light"`. See Colours and themes above.
+
+`notifications` is `"off"` (the default: the terminal bell only) or `"desktop"`, which also raises a notification from your operating system when a Focus session or a Break ends. The bell rings either way. On a platform Track has no notifier for yet, `"desktop"` shows nothing and is not an error.
 
 Track looks for the file at `$XDG_CONFIG_HOME/track/config.toml` if that is set to an absolute path, otherwise at `~/Library/Application Support/track/config.toml` on macOS and `~/.config/track/config.toml` elsewhere. `--config FILE` names one explicitly, and then it must exist.
 

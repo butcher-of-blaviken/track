@@ -21,6 +21,7 @@ import (
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
 	"github.com/butcher-of-blaviken/track/internal/datadir"
+	"github.com/butcher-of-blaviken/track/internal/notify"
 	"github.com/butcher-of-blaviken/track/internal/store/sqlite"
 	"github.com/butcher-of-blaviken/track/internal/tui"
 )
@@ -227,7 +228,7 @@ func runTUI(opts options, getenv func(string) string) error {
 	// on it, and passing it on keeps the two in step.
 	profile := colorprofile.Detect(os.Stdout, os.Environ())
 	_, err = tea.NewProgram(
-		tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithTheme(themePalette(settings.Theme, profile)), tui.WithDocs(readmeText)),
+		tui.New(a.tracker, tui.WithFocusDuration(settings.FocusDuration), tui.WithLayout(settings.Layout), tui.WithTheme(themePalette(settings.Theme, profile)), tui.WithNotifier(notifierFor(settings.Notifications, runtime.GOOS)), tui.WithDocs(readmeText)),
 		tea.WithColorProfile(profile),
 	).Run()
 	return err
@@ -242,6 +243,19 @@ func themePalette(name string, profile colorprofile.Profile) tui.Palette {
 		return tui.DefaultPalette()
 	}
 	return tui.FitPalette(p, profile)
+}
+
+// notifierFor is what shows a system notification for the notifications setting
+// on the given platform. Only "desktop" asks for one, and a platform with none
+// shows nothing: the bell still rings, which is why that is not an error.
+func notifierFor(mode, goos string) notify.Notifier {
+	if mode != config.NotificationsDesktop {
+		return notify.Nop{}
+	}
+	switch goos {
+	default:
+		return notify.Nop{}
+	}
 }
 
 // loadSettings reads the config file over the defaults. A file named with
