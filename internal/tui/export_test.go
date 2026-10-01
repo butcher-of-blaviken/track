@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/bubbles/v2/key"
+import (
+	"time"
+
+	"charm.land/bubbles/v2/key"
+)
 
 // FullHelp is the full help of each view that has one, for tests outside the
 // package that check the docs list every key.
@@ -13,4 +17,10 @@ func FullHelp() map[string][][]key.Binding {
 		"The report":      k.reportFull(),
 		"The docs":        k.docsFull(),
 	}
+}
+
+// WithNotifyTimeout sets how long a notifier gets, so a test need not wait out the
+// real one.
+func WithNotifyTimeout(d time.Duration) Option {
+	return func(m *Model) { m.notifyTimeout = d }
 }
