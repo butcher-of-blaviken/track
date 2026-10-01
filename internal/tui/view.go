@@ -111,11 +111,7 @@ func (m Model) banner() string {
 	if b == nil || m.bell.acked {
 		return ""
 	}
-	text := "Focus complete — Break started (press any key)"
-	if b.Kind == core.BellBreakEnd {
-		text = "Break over — ready for the next session (press any key)"
-	}
-	line := "  " + text
+	line := "  " + bellText(b.Kind) + " (press any key)"
 	if pad := m.width - ansi.StringWidth(line); pad > 0 {
 		line += strings.Repeat(" ", pad)
 	}

@@ -23,6 +23,7 @@ import (
 
 	"github.com/butcher-of-blaviken/track/internal/core"
 	"github.com/butcher-of-blaviken/track/internal/export"
+	"github.com/butcher-of-blaviken/track/internal/notify"
 )
 
 const (
@@ -144,6 +145,13 @@ func WithTheme(p Palette) Option {
 	return func(m *Model) { m.pal, m.th = p, newThemeFrom(p) }
 }
 
+// WithNotifier sets what shows a system notification when a Focus session or a
+// Break ends, once per event, on its first ring. The default shows nothing. The
+// bell is unaffected, and so is the UI if the notifier is slow or fails.
+func WithNotifier(n notify.Notifier) Option {
+	return func(m *Model) { m.notifier = n }
+}
+
 // WithDocs sets the documentation the H key opens, shown as plain text.
 func WithDocs(text string) Option {
 	return func(m *Model) { m.docsText = text }
@@ -260,6 +268,10 @@ type Model struct {
 	pal Palette
 
 	bell ringState
+	// notifier shows a system notification on a bell event's first ring, within
+	// notifyTimeout; nil shows none.
+	notifier      notify.Notifier
+	notifyTimeout time.Duration
 
 	// showHelp is whether the full help is open, in helpMode; leaving that mode
 	// closes it.
@@ -342,7 +354,7 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.Placeholder = addPlaceholder
 	input.SetVirtualCursor(false)
 
-	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: help.New(), th: newTheme(), pal: DefaultPalette()}
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: help.New(), th: newTheme(), pal: DefaultPalette(), notifyTimeout: defaultNotifyTimeout}
 	for _, opt := range opts {
 		opt(&m)
 	}
@@ -711,10 +723,17 @@ func (m *Model) syncHandoff() tea.Cmd {
 	return nil
 }
 
+// defaultNotifyTimeout is how long a notifier gets to show a notification: long
+// enough for a slow helper process to start, short enough that a hung one does
+// not linger for the rest of the run.
+const defaultNotifyTimeout = 10 * time.Second
+
 // ring returns the command that rings the terminal bell when the core says
 // more rings are due for the current event than have been made. It rings once
 // per refresh however many are due, so reopening the app or a stalled tick does
-// not fire a burst.
+// not fire a burst. The first ring of an event also asks the notifier to show a
+// system notification; the repeats do not, so there is no banner every 30
+// seconds.
 func (m *Model) ring() tea.Cmd {
 	b := m.snap.Bell
 	if b == nil {
@@ -727,8 +746,42 @@ func (m *Model) ring() tea.Cmd {
 	if m.bell.acked || b.Scheduled <= m.bell.rung {
 		return nil
 	}
+	first := m.bell.rung == 0
 	m.bell.rung = b.Scheduled
+	if first {
+		return tea.Batch(tea.Raw("\a"), m.notify(b.Kind))
+	}
 	return tea.Raw("\a")
+}
+
+// notify is the command that shows the system notification for a bell event, or
+// nil if there is no notifier. It runs off the UI's goroutine, gives up after
+// notifyTimeout, and ignores a failure: the bell is the signal that always works.
+func (m *Model) notify(kind core.BellKind) tea.Cmd {
+	if m.notifier == nil {
+		return nil
+	}
+	n, timeout, e := m.notifier, m.notifyTimeout, notification(kind)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		_ = n.Notify(ctx, e)
+		return nil
+	}
+}
+
+// bellText is what a bell event announces.
+func bellText(kind core.BellKind) string {
+	if kind == core.BellBreakEnd {
+		return "Break over — ready for the next session"
+	}
+	return "Focus complete — Break started"
+}
+
+// notification is the system notification for a bell event: the same words as
+// the banner, and no Task text, since notifications show on the lock screen.
+func notification(kind core.BellKind) notify.Event {
+	return notify.Event{Title: "Track", Body: bellText(kind)}
 }
 
 func (m *Model) acknowledgeBell() {
