@@ -17,6 +17,7 @@ import (
 	"github.com/butcher-of-blaviken/track/internal/clock"
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
+	"github.com/butcher-of-blaviken/track/internal/notify"
 	"github.com/butcher-of-blaviken/track/internal/store/memory"
 	"github.com/butcher-of-blaviken/track/internal/tui"
 )
@@ -304,5 +305,17 @@ func TestThemesAreTheDefaultAndEveryBuiltInPalette(t *testing.T) {
 	}
 	if themePalette(config.ThemeDefault, colorprofile.TrueColor) != tui.DefaultPalette() {
 		t.Error("the default theme is not the default palette")
+	}
+}
+
+func TestNotifierFor_OnlyDesktopAsksForOneAndAnUnsupportedPlatformShowsNothing(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux", "windows", "plan9"} {
+		if got := notifierFor(config.NotificationsOff, goos); got != (notify.Nop{}) {
+			t.Errorf("off on %s: notifier = %T, want none", goos, got)
+		}
+	}
+	// No platform has a notifier yet; each one's own ticket adds it here.
+	if got := notifierFor(config.NotificationsDesktop, "plan9"); got != (notify.Nop{}) {
+		t.Errorf("desktop on a platform with none: notifier = %T, want none, and no error", got)
 	}
 }

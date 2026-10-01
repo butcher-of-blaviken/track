@@ -22,7 +22,7 @@ func writeConfig(t *testing.T, text string) string {
 func TestDefaults(t *testing.T) {
 	want := config.Settings{
 		FocusDuration: 30 * time.Minute, BreakDuration: 10 * time.Minute, LongBreakDuration: 20 * time.Minute,
-		LongBreakInterval: 4, BellInterval: 30 * time.Second, BellRepeats: 10, Layout: config.LayoutAuto, Theme: config.ThemeDefault,
+		LongBreakInterval: 4, BellInterval: 30 * time.Second, BellRepeats: 10, Layout: config.LayoutAuto, Theme: config.ThemeDefault, Notifications: config.NotificationsOff,
 	}
 	if got := config.Defaults(); got != want {
 		t.Errorf("Defaults() = %+v, want %+v", got, want)
@@ -61,6 +61,7 @@ bell_interval = "10s"
 bell_repeats = 2
 layout = "single"
 theme = "one-dark"
+notifications = "desktop"
 `)
 	got, err := config.Load(path, true)
 	if err != nil {
@@ -68,7 +69,7 @@ theme = "one-dark"
 	}
 	want := config.Settings{
 		FocusDuration: 45 * time.Minute, BreakDuration: 7*time.Minute + 30*time.Second, LongBreakDuration: 25 * time.Minute,
-		LongBreakInterval: 3, BellInterval: 10 * time.Second, BellRepeats: 2, Layout: config.LayoutSingle, Theme: "one-dark",
+		LongBreakInterval: 3, BellInterval: 10 * time.Second, BellRepeats: 2, Layout: config.LayoutSingle, Theme: "one-dark", Notifications: config.NotificationsDesktop,
 	}
 	if got != want {
 		t.Errorf("Load = %+v, want %+v", got, want)
@@ -111,6 +112,8 @@ func TestLoad_BadConfigNamesTheFileAndTheKey(t *testing.T) {
 		"number for layout":         {"layout = 2\n", []string{"layout", `"single"`}},
 		"unknown theme":             {"theme = \"neon\"\n", []string{"theme", `"default"`, `"one-dark"`, `"solarized-light"`, "neon"}},
 		"number for theme":          {"theme = 2\n", []string{"theme", `"default"`}},
+		"unknown notifications":     {"notifications = \"popup\"\n", []string{"notifications", `"off"`, `"desktop"`, "popup"}},
+		"boolean for notifications": {"notifications = true\n", []string{"notifications", `"off"`}},
 		"zero bell interval":        {"bell_interval = \"0s\"\n", []string{"bell_interval", "positive"}},
 		"syntax error reports line": {"focus_duration = \"30m\"\nthis is not toml\n", []string{"line 2"}},
 	} {
@@ -237,6 +240,7 @@ func TestV1ConfigStillLoads(t *testing.T) {
 		BellRepeats:       2,
 		Layout:            config.LayoutAuto, // keys added later take their defaults
 		Theme:             config.ThemeDefault,
+		Notifications:     config.NotificationsOff,
 	}
 	if got != want {
 		t.Errorf("a v1 config now means something else:\n got  %+v\n want %+v", got, want)
@@ -259,8 +263,32 @@ func TestV12ConfigStillLoads(t *testing.T) {
 		BellRepeats:       2,
 		Layout:            config.LayoutSingle,
 		Theme:             "solarized-light",
+		Notifications:     config.NotificationsOff, // a key added later takes its default
 	}
 	if got != want {
 		t.Errorf("a v1.2 config now means something else:\n got  %+v\n want %+v", got, want)
+	}
+}
+
+// A config file written for v1.3.0, the release that added notifications, keeps
+// loading too. Never edit testdata/config_v1_3.toml to make this pass.
+func TestV13ConfigStillLoads(t *testing.T) {
+	got, err := config.Load(filepath.Join("testdata", "config_v1_3.toml"), true)
+	if err != nil {
+		t.Fatalf("a v1.3 config no longer loads: %v", err)
+	}
+	want := config.Settings{
+		FocusDuration:     45 * time.Minute,
+		BreakDuration:     7 * time.Minute,
+		LongBreakDuration: 25 * time.Minute,
+		LongBreakInterval: 3,
+		BellInterval:      15 * time.Second,
+		BellRepeats:       2,
+		Layout:            config.LayoutSingle,
+		Theme:             "solarized-light",
+		Notifications:     config.NotificationsDesktop,
+	}
+	if got != want {
+		t.Errorf("a v1.3 config now means something else:\n got  %+v\n want %+v", got, want)
 	}
 }

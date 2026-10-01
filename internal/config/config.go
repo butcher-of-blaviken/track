@@ -32,6 +32,9 @@ type Settings struct {
 	Layout string
 	// Theme is the colours: ThemeDefault, or the name of a built-in palette.
 	Theme string
+	// Notifications is whether a Focus session or Break ending also raises a
+	// system notification: NotificationsOff or NotificationsDesktop.
+	Notifications string
 }
 
 // The layouts. Split and auto both show the panels side by side when the
@@ -50,6 +53,17 @@ const ThemeDefault = "default"
 // that this is ThemeDefault and the palettes the UI has.
 var Themes = []string{ThemeDefault, "gruvbox-dark", "one-dark", "one-light", "solarized-dark", "solarized-light"}
 
+// The values of the notifications key. The terminal bell rings either way;
+// desktop adds a notification from the operating system's own notification
+// system, where Track has one for the platform.
+const (
+	NotificationsOff     = "off"
+	NotificationsDesktop = "desktop"
+)
+
+// NotificationModes are the values of the notifications key.
+var NotificationModes = []string{NotificationsOff, NotificationsDesktop}
+
 // Defaults are the settings when nothing overrides them.
 func Defaults() Settings {
 	return Settings{
@@ -61,6 +75,7 @@ func Defaults() Settings {
 		BellRepeats:       10,
 		Layout:            LayoutAuto,
 		Theme:             ThemeDefault,
+		Notifications:     NotificationsOff,
 	}
 }
 
@@ -192,6 +207,13 @@ func (s *Settings) set(key string, value any) error {
 			return fmt.Errorf("theme: must be one of %s, got %v", quoted(Themes), value)
 		}
 		s.Theme = text
+		return nil
+	case "notifications":
+		text, ok := value.(string)
+		if !ok || !slices.Contains(NotificationModes, text) {
+			return fmt.Errorf("notifications: must be one of %s, got %v", quoted(NotificationModes), value)
+		}
+		s.Notifications = text
 		return nil
 	}
 	return fmt.Errorf("unknown key %q", key)

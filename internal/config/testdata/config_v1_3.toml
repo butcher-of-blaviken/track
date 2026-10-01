@@ -1,0 +1,11 @@
+# Every key v1.3.0 understands, with values that differ from the defaults.
+# Never edit this file to make a test pass: a v1.3 config must keep loading.
+focus_duration = "45m"
+break_duration = "7m"
+long_break_duration = "25m"
+long_break_interval = 3
+bell_interval = "15s"
+bell_repeats = 2
+layout = "single"
+theme = "solarized-light"
+notifications = "desktop"
