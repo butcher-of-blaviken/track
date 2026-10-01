@@ -139,6 +139,11 @@ func WithFocusDuration(d time.Duration) Option {
 	return func(m *Model) { m.focusDuration = d }
 }
 
+// WithTheme sets the colours the app is drawn in. The default is DefaultPalette.
+func WithTheme(p Palette) Option {
+	return func(m *Model) { m.th = newThemeFrom(p) }
+}
+
 // WithDocs sets the documentation the H key opens, shown as plain text.
 func WithDocs(text string) Option {
 	return func(m *Model) { m.docsText = text }
@@ -332,27 +337,32 @@ func New(tracker *core.Tracker, opts ...Option) Model {
 	input.Prompt = ""
 	// The leading space is under the terminal's cursor, so no hint text is hidden.
 	input.Placeholder = addPlaceholder
-	// Typed text is plain and the hint is faint, like the footer; the terminal
-	// draws a steady cursor.
-	th := newTheme()
-	styles := textinput.Styles{}
-	styles.Focused.Placeholder, styles.Blurred.Placeholder = th.muted, th.muted
-	styles.Cursor.Blink = false
-	input.SetStyles(styles)
 	input.SetVirtualCursor(false)
 
-	// The footer shows each key in the accent and what it does muted.
-	footer := help.New()
-	footer.Styles.ShortKey, footer.Styles.FullKey = th.accent, th.accent
-	footer.Styles.ShortDesc, footer.Styles.FullDesc = th.muted, th.muted
-	footer.Styles.ShortSeparator, footer.Styles.FullSeparator, footer.Styles.Ellipsis = th.muted, th.muted, th.muted
-
-	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: footer, th: th}
+	m := Model{tracker: tracker, tick: defaultTick, input: input, focusDuration: defaultFocusDuration, keys: newKeyMap(), help: help.New(), th: newTheme()}
 	for _, opt := range opts {
 		opt(&m)
 	}
+	m.styleWidgets()
 	m.sizeInput()
 	return m
+}
+
+// styleWidgets paints the text input and the footer in the theme. They hold
+// their own styles, so they are set after the options have chosen the theme.
+func (m *Model) styleWidgets() {
+	th := m.th
+	// Typed text is plain and the hint is faint, like the footer; the terminal
+	// draws a steady cursor.
+	styles := textinput.Styles{}
+	styles.Focused.Placeholder, styles.Blurred.Placeholder = th.muted, th.muted
+	styles.Cursor.Blink = false
+	m.input.SetStyles(styles)
+
+	// The footer shows each key in the accent and what it does muted.
+	m.help.Styles.ShortKey, m.help.Styles.FullKey = th.accent, th.accent
+	m.help.Styles.ShortDesc, m.help.Styles.FullDesc = th.muted, th.muted
+	m.help.Styles.ShortSeparator, m.help.Styles.FullSeparator, m.help.Styles.Ellipsis = th.muted, th.muted, th.muted
 }
 
 // sizeInput gives the prompt the width left after its label. Without a width

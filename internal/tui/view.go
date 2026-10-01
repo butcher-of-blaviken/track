@@ -8,7 +8,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/butcher-of-blaviken/track/internal/core"
@@ -89,7 +88,7 @@ func (m Model) header() []string {
 			lines = append(lines, "  "+m.th.needsYou.Render("This session is "+durationText(m.snap.Session.PlannedDuration)+"; the current setting is "+durationText(m.focusDuration)+"."))
 		}
 		if m.snap.HandoffPending {
-			lines = append(lines, "  "+m.th.badge(lipgloss.Yellow).Render(" Hand-off due "))
+			lines = append(lines, "  "+m.th.badge(m.th.p.NeedsYou).Render(" Hand-off due "))
 		}
 		if m.unfiled > 0 {
 			lines = append(lines, "  "+m.th.needsYou.Render(fmt.Sprintf("Unfiled notes: %d (i to file)", m.unfiled)))
