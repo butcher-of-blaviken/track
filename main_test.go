@@ -16,6 +16,7 @@ import (
 	"github.com/butcher-of-blaviken/track/internal/config"
 	"github.com/butcher-of-blaviken/track/internal/core"
 	"github.com/butcher-of-blaviken/track/internal/store/memory"
+	"github.com/butcher-of-blaviken/track/internal/tui"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -281,5 +282,25 @@ func TestSettingsFor_ABrokenConfigStillStopsStartupWhateverTheFlagsSay(t *testin
 func TestRealMain_HelpSucceeds(t *testing.T) {
 	if code := realMain([]string{"--help"}, env(nil), io.Discard, io.Discard); code != 0 {
 		t.Errorf("realMain(--help) = %d, want 0", code)
+	}
+}
+
+// The config package lists the themes so that it need not import the UI; this
+// keeps that list and the UI's palettes the same.
+func TestThemesAreTheDefaultAndEveryBuiltInPalette(t *testing.T) {
+	want := append([]string{config.ThemeDefault}, tui.PaletteNames()...)
+	if strings.Join(config.Themes, " ") != strings.Join(want, " ") {
+		t.Errorf("config.Themes = %v, want %v", config.Themes, want)
+	}
+	for _, name := range config.Themes {
+		if name == config.ThemeDefault {
+			continue
+		}
+		if p, ok := tui.BuiltinPalette(name); !ok || themePalette(name) != p {
+			t.Errorf("themePalette(%q) is not the built-in palette", name)
+		}
+	}
+	if themePalette(config.ThemeDefault) != tui.DefaultPalette() {
+		t.Error("the default theme is not the default palette")
 	}
 }

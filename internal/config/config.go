@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,8 @@ type Settings struct {
 	// Layout is how the main screen is laid out: LayoutAuto, LayoutSplit or
 	// LayoutSingle.
 	Layout string
+	// Theme is the colours: ThemeDefault, or the name of a built-in palette.
+	Theme string
 }
 
 // The layouts. Split and auto both show the panels side by side when the
@@ -38,6 +41,14 @@ const (
 	LayoutSplit  = "split"
 	LayoutSingle = "single"
 )
+
+// ThemeDefault takes the colours of the terminal's own theme. The other themes
+// are fixed palettes; Themes lists them all.
+const ThemeDefault = "default"
+
+// Themes are the values of the theme key. A test in the main package checks
+// that this is ThemeDefault and the palettes the UI has.
+var Themes = []string{ThemeDefault, "gruvbox-dark", "one-dark", "one-light", "solarized-dark", "solarized-light"}
 
 // Defaults are the settings when nothing overrides them.
 func Defaults() Settings {
@@ -49,6 +60,7 @@ func Defaults() Settings {
 		BellInterval:      30 * time.Second,
 		BellRepeats:       10,
 		Layout:            LayoutAuto,
+		Theme:             ThemeDefault,
 	}
 }
 
@@ -174,8 +186,24 @@ func (s *Settings) set(key string, value any) error {
 		}
 		s.Layout = text
 		return nil
+	case "theme":
+		text, ok := value.(string)
+		if !ok || !slices.Contains(Themes, text) {
+			return fmt.Errorf("theme: must be one of %s, got %v", quoted(Themes), value)
+		}
+		s.Theme = text
+		return nil
 	}
 	return fmt.Errorf("unknown key %q", key)
+}
+
+// quoted lists names as "a", "b" and "c".
+func quoted(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = strconv.Quote(n)
+	}
+	return strings.Join(q, ", ")
 }
 
 // ParseDuration reads a positive duration written as a string such as "30m".
