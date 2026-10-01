@@ -66,6 +66,22 @@ If nothing appeared:
 To get these when a Focus session or a Break ends, set notifications = "desktop"
 in the config file.
 `
+	case "linux":
+		return `The notification server accepted it, so a banner should have appeared. The sound is
+only a hint, and desktops differ in whether they play it.
+
+If nothing appeared:
+  - Check that Do Not Disturb (or your desktop's equivalent) is not on, and that
+    notifications are allowed in your desktop's settings.
+  - Track needs a notification server on your D-Bus session bus. GNOME, KDE Plasma
+    and XFCE have one; on a minimal window manager install dunst or mako.
+  - Over SSH or in a headless session there is no session bus, so nothing can be
+    shown there; the terminal bell still rings.
+  - Run track notify-test again.
+
+To get these when a Focus session or a Break ends, set notifications = "desktop"
+in the config file.
+`
 	}
 	return ""
 }

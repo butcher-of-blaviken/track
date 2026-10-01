@@ -259,6 +259,8 @@ func notifierFor(mode, goos string) notify.Notifier {
 	switch goos {
 	case "darwin":
 		return notify.NewMacOS()
+	case "linux":
+		return notify.NewLinux()
 	default:
 		return notify.Nop{}
 	}
