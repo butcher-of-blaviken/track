@@ -253,6 +253,8 @@ func notifierFor(mode, goos string) notify.Notifier {
 		return notify.Nop{}
 	}
 	switch goos {
+	case "darwin":
+		return notify.NewMacOS()
 	default:
 		return notify.Nop{}
 	}
